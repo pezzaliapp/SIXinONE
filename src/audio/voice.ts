@@ -175,16 +175,16 @@ export class Voice {
     const masters = this.osc1Bank.pwmOscillators;
     const slaves = this.osc2Bank.pwmOscillators;
     if (masters.length === 0 || slaves.length === 0) return;
-    // Promote slaves so they expose `syncReset` semantics; masters keep posting
-    // their zero-crossing events.
     for (const m of masters) m.setRole('master');
     for (const s of slaves) s.setRole('slave');
-    // Wire all slaves to the first master's zero-cross events. Multiple
-    // masters would race; the panel only ever activates one (OSC1).
+    // Sample-accurate hard sync: master.outputs[1] (single-sample pulse on
+    // each phase wrap) is wired into slave.inputs[0]. The slave detects the
+    // rising edge inside its process() loop and resets phase that same
+    // sample — yielding the classic "sync scream" without any port-latency
+    // jitter. The panel only ever activates OSC1's sync2to1 flag, so we
+    // route all slaves to the first master.
     const master = masters[0]!;
-    master.onZeroCross(() => {
-      for (const s of slaves) s.resetPhase();
-    });
+    for (const s of slaves) master.connectSyncOutputTo(s);
   }
 
   private wireLfoModulation(lfoBus: AudioNode, preset: Preset): void {

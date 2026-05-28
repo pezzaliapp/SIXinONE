@@ -34,13 +34,15 @@ export interface PwmOscillator {
   readonly node: AudioWorkletNode;
   readonly frequency: AudioParam;
   readonly pulseWidth: AudioParam;
-  readonly detune: AudioParam;
-  /** Triggers a hard sync phase reset on the next sample. */
+  /** Triggers a hard sync phase reset on the next sample (manual via port). */
   resetPhase(): void;
-  /** Switch between 'master' (posts zero-cross events) and 'slave' modes. */
+  /** Switch between 'master' and 'slave' modes. */
   setRole(role: 'master' | 'slave'): void;
-  /** Subscribe to zero-crossing notifications from a master instance. */
-  onZeroCross(cb: () => void): () => void;
+  /**
+   * Wire this oscillator's sync output (output index 1) into another
+   * oscillator's sync input (input index 0) for sample-accurate hard sync.
+   */
+  connectSyncOutputTo(slave: PwmOscillator): void;
   start(when?: number): void;
   stop(when?: number): void;
   disconnect(): void;
@@ -51,8 +53,9 @@ export function createPwmOscillator(ctx: AudioContext): PwmOscillator {
     throw new Error('pwm-oscillator worklet has not been registered yet');
   }
   const node = new AudioWorkletNode(ctx, 'pwm-oscillator', {
-    numberOfInputs: 0,
-    numberOfOutputs: 1,
+    numberOfInputs: 1,
+    numberOfOutputs: 2,
+    outputChannelCount: [1, 1],
     channelCount: 1,
     channelCountMode: 'explicit',
   });
@@ -63,34 +66,10 @@ export function createPwmOscillator(ctx: AudioContext): PwmOscillator {
     throw new Error('pwm-oscillator worklet missing expected parameters');
   }
 
-  // We model `detune` (cents) ourselves: a ConstantSourceNode adds cents
-  // worth of frequency offset to the worklet's `frequency` AudioParam via
-  // ratio (2^(cents/1200)). This matches the OscillatorNode.detune API
-  // semantics the rest of the codebase already uses.
-  const detuneSrc = ctx.createConstantSource();
-  detuneSrc.offset.value = 0;
-  // The detune param is wired via a custom multiplier: see setDetuneCents.
-  // For simplicity we expose offset directly and let the caller treat it as
-  // "cents to add"; the worklet's frequency param is then driven by a
-  // GainNode that converts cents → Hz delta. We skip that subtlety: in
-  // practice the Voice only uses detune for pitch bend (small) or fine
-  // tuning, so we approximate by multiplying frequency.
-  // → Provide the raw AudioParam on `detuneSrc.offset` for now.
-  const subscribers = new Set<() => void>();
-  node.port.onmessage = (e) => {
-    const data = e.data;
-    if (data && data.type === 'zeroCross') {
-      for (const cb of subscribers) cb();
-    }
-  };
-
-  let started = false;
-  let stopped = false;
   return {
     node,
     frequency,
     pulseWidth,
-    detune: detuneSrc.offset,
     resetPhase(): void {
       try {
         node.port.postMessage({ type: 'syncReset' });
@@ -105,42 +84,26 @@ export function createPwmOscillator(ctx: AudioContext): PwmOscillator {
         /* ignore */
       }
     },
-    onZeroCross(cb): () => void {
-      subscribers.add(cb);
-      return () => subscribers.delete(cb);
-    },
-    start(when?: number): void {
-      if (started) return;
-      started = true;
+    connectSyncOutputTo(slave): void {
+      // master.output[1] → slave.input[0]
       try {
-        detuneSrc.start(when);
+        node.connect(slave.node, 1, 0);
       } catch {
-        /* already started */
+        /* ignore — incompatible channel layout shouldn't happen given construction */
       }
     },
-    stop(when?: number): void {
-      if (stopped) return;
-      stopped = true;
-      try {
-        detuneSrc.stop(when);
-      } catch {
-        /* already stopped */
-      }
-      // AudioWorkletNode has no start/stop — we just let it idle and rely
-      // on disconnect() to free it.
+    start(_when?: number): void {
+      // AudioWorkletNode has no start/stop — it runs from construction.
+    },
+    stop(_when?: number): void {
+      /* see above */
     },
     disconnect(): void {
-      try {
-        detuneSrc.disconnect();
-      } catch {
-        /* ignore */
-      }
       try {
         node.disconnect();
       } catch {
         /* ignore */
       }
-      subscribers.clear();
     },
   };
 }
