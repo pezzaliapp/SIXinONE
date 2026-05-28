@@ -82,6 +82,8 @@ import { cinematicSweep } from './demos/style-cinematic';
 import { funkBassWorkout } from './demos/style-funk';
 import { bachInvention } from './demos/classical-bach';
 import { mozartEineKleine } from './demos/classical-mozart';
+import { filterWorkout } from './demos/tech-filter';
+import { presetsTour } from './demos/tech-presets-tour';
 
 export const DEMOS: Demo[] = [
   arenaSyncLead,
@@ -90,6 +92,8 @@ export const DEMOS: Demo[] = [
   funkBassWorkout,
   bachInvention,
   mozartEineKleine,
+  filterWorkout,
+  presetsTour,
 ];
 
 /** Lookup helper used by the per-preset PLAY button. */
