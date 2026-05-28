@@ -17,7 +17,8 @@
 
 import type { Synth } from '../../audio/synth';
 import { currentPreset, mutate } from '../../state/store';
-import type { ArpClockSource, ArpPattern, ArpSubdiv } from '../../sequencer/arpeggiator';
+import type { ArpPattern, ArpSubdiv } from '../../sequencer/arpeggiator';
+import { transportClock } from '../../sequencer/transport-clock';
 
 export interface ArpPanelHandle {
   element: HTMLElement;
@@ -100,21 +101,9 @@ export function createArpPanel(synth: Synth): ArpPanelHandle {
   subdivSel.addEventListener('change', () => arp.setSubdivision(parseInt(subdivSel.value, 10) as ArpSubdiv));
   subdivLabel.appendChild(subdivSel);
 
-  const sourceLabel = document.createElement('label');
-  sourceLabel.className = 'arp-field';
-  sourceLabel.innerHTML = '<span>CLOCK</span>';
-  const sourceSel = document.createElement('select');
-  sourceSel.className = 'midi-select';
-  for (const v of ['INT', 'EXT']) {
-    const o = document.createElement('option');
-    o.value = v;
-    o.textContent = v;
-    if (v === arp.getSource()) o.selected = true;
-    sourceSel.appendChild(o);
-  }
-  sourceSel.addEventListener('change', () => arp.setSource(sourceSel.value as ArpClockSource));
-  sourceLabel.appendChild(sourceSel);
-
+  // BPM display only — the canonical tempo lives in TransportClock; the
+  // user can still tweak it from here, but the source toggle moved to the
+  // dedicated transport panel.
   const bpmLabel = document.createElement('label');
   bpmLabel.className = 'arp-field';
   bpmLabel.innerHTML = '<span>RATE BPM</span>';
@@ -122,12 +111,17 @@ export function createArpPanel(synth: Synth): ArpPanelHandle {
   bpmInp.type = 'number';
   bpmInp.min = '30';
   bpmInp.max = '360';
-  bpmInp.value = String(arp.getBpm());
+  bpmInp.value = String(transportClock.getBpm());
   bpmInp.className = 'arp-bpm';
-  bpmInp.addEventListener('input', () => arp.setBpm(parseInt(bpmInp.value, 10) || 120));
+  bpmInp.addEventListener('input', () => transportClock.setBpm(parseInt(bpmInp.value, 10) || 120));
   bpmLabel.appendChild(bpmInp);
+  transportClock.subscribe({
+    onBpmChange: (bpm) => {
+      if (document.activeElement !== bpmInp) bpmInp.value = String(Math.round(bpm));
+    },
+  });
 
-  settings.append(rangeLabel, subdivLabel, sourceLabel, bpmLabel);
+  settings.append(rangeLabel, subdivLabel, bpmLabel);
   root.appendChild(settings);
 
   // Refresh selected pattern button whenever the preset changes (preset load

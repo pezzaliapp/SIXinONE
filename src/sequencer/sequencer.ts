@@ -1,30 +1,25 @@
 /**
- * Memorymoog Plus sequencer — pragmatic distillation.
+ * Memorymoog Plus sequencer — rides the shared {@link TransportClock}.
  *
  * Concepts:
  *   - 10 sequence slots, each a list of steps.
- *   - A step is either a NOTE (MIDI note + duration in beats) or a REST.
- *     Program-change steps (the original "program sequence") collapse to
- *     a NoteEvent with `programChange` set.
- *   - Three transport modes:
- *       STEP        — advance one step on an external trigger (callback)
- *       CONTINUOUS  — clock driven by internal BPM
- *       SYNC_EXT    — external clock advances (hook in for Web MIDI clock)
- *   - BPM 30..300; one step = one quarter unless step.duration says
- *     otherwise.
- *
- * Implementation uses the well-known lookahead scheduling pattern
- * (Chris Wilson, "A Tale of Two Clocks"): a setInterval drives a
- * scheduler that pushes events into the synth up to `lookaheadMs`
- * ahead of currentTime so jitter from main-thread blocking doesn't
- * hurt timing.
+ *   - A step is either a NOTE (MIDI note + duration in beats) or a REST,
+ *     or a program change (the original "program sequence" feature).
+ *   - Three control modes:
+ *       STEP        — advance one step on a manual STEP button press
+ *       CONTINUOUS  — TransportClock drives playback (INT panel BPM, or
+ *                     EXT MIDI clock, depending on the global source)
+ *       SYNC_EXT    — alias for CONTINUOUS while transport source = EXT,
+ *                     kept for UI continuity with the v2 panel
+ *   - BPM is owned by the TransportClock; setBpm() forwards to it.
+ *   - Step subdivision: how many 24-ppqn ticks advance one step. 6 = 16th
+ *     (default), 12 = 8th, 24 = quarter, 3 = 32nd.
  */
 
 import type { Synth } from '../audio/synth';
-import { getAudioContext } from '../audio/context';
 import { presetBank } from '../data/preset-bank';
 import { subscribeNote } from '../state/note-bus';
-import { externalClock } from '../midi/external-clock';
+import { transportClock as defaultTransport, type TransportClock } from './transport-clock';
 
 export type StepEvent =
   | { type: 'note'; note: number; velocity: number; durationBeats: number }
@@ -32,8 +27,7 @@ export type StepEvent =
   | { type: 'program'; number: number };
 
 export type SequencerMode = 'STEP' | 'CONTINUOUS' | 'SYNC_EXT';
-/** External-clock subdivision: how many 24-ppqn ticks advance one step. */
-export type ClockSubdiv = 24 | 12 | 6 | 3; // 1/4, 1/8, 1/16, 1/32
+export type ClockSubdiv = 24 | 12 | 6 | 3;
 
 export class Sequence {
   steps: StepEvent[] = [];
@@ -52,30 +46,24 @@ export class Sequencer {
   );
 
   private currentSlot = 0;
-  private bpm = 120;
   private mode: SequencerMode = 'CONTINUOUS';
   private running = false;
   private recording = false;
-  private clockSubdiv: ClockSubdiv = 6; // default = 16th note steps
-  private externalTickCounter = 0;
-  private externalClockUnsub: (() => void) | null = null;
-  private externalClockEverPresent = false;
+  private clockSubdiv: ClockSubdiv = 6;
+  private tickCounter = 0;
+  private currentStepIdx = 0;
   /** Callback invoked once per outgoing 24-ppqn tick when sending clock. */
   private clockOutCb: ((tickIndex: number) => void) | null = null;
-  private clockOutTimer: number | null = null;
-
-  private nextNoteTime = 0;
-  private currentStepIdx = 0;
-  private schedulerId: number | null = null;
-  private readonly lookaheadMs = 25;
-  private readonly scheduleAheadSec = 0.1;
-
+  private transportUnsub: (() => void) | null = null;
   private listeners = new Set<() => void>();
+  private transport: TransportClock;
 
-  constructor(private synth: Synth) {
+  constructor(private synth: Synth, transport: TransportClock = defaultTransport) {
+    this.transport = transport;
     subscribeNote((note, velocity) => {
       if (this.recording) this.appendNote(note, velocity, 1);
     });
+    this.subscribeTransport();
   }
 
   on(cb: () => void): () => void {
@@ -98,22 +86,17 @@ export class Sequencer {
   }
 
   setBpm(bpm: number): void {
-    this.bpm = Math.max(30, Math.min(300, bpm));
-    // Re-pace the clock-output ticker so DAWs in slave mode track tempo changes.
-    if (this.clockOutTimer !== null) {
-      this.stopClockOut();
-      if (this.running && this.mode === 'CONTINUOUS') this.startClockOut();
-    }
+    this.transport.setBpm(bpm);
   }
   getBpm(): number {
-    return this.bpm;
+    return this.transport.getBpm();
   }
 
   setMode(mode: SequencerMode): void {
     this.mode = mode;
     if (mode === 'STEP') this.stop();
-    if (mode === 'SYNC_EXT') this.subscribeExternalClock();
-    else this.unsubscribeExternalClock();
+    if (mode === 'SYNC_EXT') this.transport.setSource('EXT');
+    else if (mode === 'CONTINUOUS') this.transport.setSource('INT');
     this.fire();
   }
   getMode(): SequencerMode {
@@ -129,12 +112,10 @@ export class Sequencer {
 
   /**
    * Register a sender for outgoing 24-ppqn ticks. When non-null and the
-   * sequencer is running internally, ticks are emitted at the internal BPM.
+   * sequencer is running, every TransportClock tick is forwarded.
    */
   setClockOutput(cb: ((tickIndex: number) => void) | null): void {
     this.clockOutCb = cb;
-    if (!cb) this.stopClockOut();
-    else if (this.running && this.mode === 'CONTINUOUS') this.startClockOut();
   }
 
   isRunning(): boolean {
@@ -174,105 +155,19 @@ export class Sequencer {
 
   start(): void {
     if (this.running) return;
-    const ctx = getAudioContext();
     this.currentStepIdx = 0;
-    this.nextNoteTime = ctx.currentTime + 0.05;
+    this.tickCounter = 0;
     this.running = true;
-    if (this.mode === 'CONTINUOUS') {
-      this.startScheduler();
-      this.startClockOut();
-    }
+    this.transport.start();
     this.fire();
   }
 
   stop(): void {
     if (!this.running) return;
     this.running = false;
-    if (this.schedulerId !== null) {
-      window.clearInterval(this.schedulerId);
-      this.schedulerId = null;
-    }
-    this.stopClockOut();
+    this.transport.stop();
     this.synth.panic();
     this.fire();
-  }
-
-  /** Direct external tick — kept for backwards compat / manual stepping. */
-  externalTick(): void {
-    if (!this.running || this.mode !== 'SYNC_EXT') return;
-    this.fireStep();
-  }
-
-  // ── External clock plumbing ──────────────────────────────────────────
-  private subscribeExternalClock(): void {
-    if (this.externalClockUnsub) return;
-    this.externalTickCounter = 0;
-    this.externalClockUnsub = externalClock.subscribe({
-      onTick: () => {
-        if (this.mode !== 'SYNC_EXT' || !this.running) return;
-        this.externalTickCounter++;
-        if (this.externalTickCounter >= this.clockSubdiv) {
-          this.externalTickCounter = 0;
-          this.fireStep();
-        }
-      },
-      onTransport: (state) => {
-        if (this.mode !== 'SYNC_EXT') return;
-        if (state === 'running') {
-          this.externalClockEverPresent = true;
-          this.externalTickCounter = 0;
-          if (!this.running) this.start();
-        } else if (state === 'stopped') {
-          if (this.running) this.stop();
-        }
-      },
-      onSongPos: (positionIn16ths) => {
-        if (this.mode !== 'SYNC_EXT') return;
-        const seq = this.getCurrentSequence();
-        if (seq.steps.length === 0) return;
-        // Default 16th-note steps: position in 16ths maps 1:1 to step idx.
-        this.currentStepIdx = positionIn16ths % seq.steps.length;
-        this.externalTickCounter = 0;
-        this.fire();
-      },
-      onPresenceChange: (present) => {
-        if (this.mode !== 'SYNC_EXT' || !this.running) return;
-        // Fall back to internal once we've ever had external clock and now
-        // it's gone — that's the "cable unplugged" scenario.
-        if (!present && this.externalClockEverPresent) {
-          this.mode = 'CONTINUOUS';
-          this.startScheduler();
-          this.fire();
-        }
-      },
-    });
-  }
-  private unsubscribeExternalClock(): void {
-    if (this.externalClockUnsub) {
-      this.externalClockUnsub();
-      this.externalClockUnsub = null;
-    }
-    this.externalClockEverPresent = false;
-  }
-
-  // ── Internal clock output ────────────────────────────────────────────
-  private startClockOut(): void {
-    if (!this.clockOutCb || this.clockOutTimer !== null) return;
-    // 24 ticks per quarter at the current BPM. We don't need sample-accurate
-    // pacing — a JS setInterval is good enough for sending MIDI clock to a
-    // DAW master timeline.
-    const intervalMs = (60_000 / Math.max(30, Math.min(300, this.bpm))) / 24;
-    let counter = 0;
-    this.clockOutTimer = window.setInterval(() => {
-      this.clockOutCb?.(counter);
-      counter = (counter + 1) % (24 * 1024);
-    }, intervalMs);
-  }
-  private stopClockOut(): void {
-    if (this.clockOutTimer !== null) {
-      window.clearInterval(this.clockOutTimer);
-      this.clockOutTimer = null;
-    }
   }
 
   /** Manually advance one step (STEP mode). */
@@ -281,26 +176,54 @@ export class Sequencer {
     if (!this.running) {
       this.running = true;
       this.currentStepIdx = 0;
-      this.nextNoteTime = getAudioContext().currentTime;
     }
     this.fireStep();
   }
 
-  private startScheduler(): void {
-    if (this.schedulerId !== null) return;
-    this.schedulerId = window.setInterval(() => this.tick(), this.lookaheadMs);
+  /** External tick — backwards-compat hook; transport delivers ticks now. */
+  externalTick(): void {
+    if (!this.running || this.mode === 'STEP') return;
+    this.fireStep();
   }
 
-  private tick(): void {
-    if (!this.running) return;
-    const ctx = getAudioContext();
-    while (this.running && this.nextNoteTime < ctx.currentTime + this.scheduleAheadSec) {
-      this.fireStep();
-    }
-  }
-
-  private secondsPerBeat(): number {
-    return 60 / this.bpm;
+  // ── Transport subscription ────────────────────────────────────────────
+  private subscribeTransport(): void {
+    if (this.transportUnsub) return;
+    this.transportUnsub = this.transport.subscribe({
+      onTick: () => {
+        // Always forward to the MIDI-clock output (lets DAWs slave to us
+        // even when the sequencer isn't itself playing — useful as a tempo
+        // master for a drum machine while you noodle).
+        this.clockOutCb?.(this.tickCounter);
+        if (!this.running || this.mode === 'STEP') return;
+        this.tickCounter++;
+        if (this.tickCounter >= this.clockSubdiv) {
+          this.tickCounter = 0;
+          this.fireStep();
+        }
+      },
+      onTransport: (state) => {
+        // When the transport changes from outside (e.g. external clock
+        // start/stop, or transport panel), reflect into our running flag.
+        if (state === 'playing' && !this.running && this.mode !== 'STEP') {
+          this.running = true;
+          this.currentStepIdx = 0;
+          this.tickCounter = 0;
+          this.fire();
+        } else if (state === 'stopped' && this.running) {
+          this.running = false;
+          this.synth.panic();
+          this.fire();
+        }
+      },
+      onSongPos: (positionIn16ths) => {
+        const seq = this.getCurrentSequence();
+        if (seq.steps.length === 0) return;
+        this.currentStepIdx = positionIn16ths % seq.steps.length;
+        this.tickCounter = 0;
+        this.fire();
+      },
+    });
   }
 
   private fireStep(): void {
@@ -310,34 +233,22 @@ export class Sequencer {
       return;
     }
     const step = seq.steps[this.currentStepIdx % seq.steps.length]!;
-    const spb = this.secondsPerBeat();
 
     if (step.type === 'program') {
-      // Load preset on the audio thread's beat boundary.
       const p = presetBank.get(step.number);
       this.synth.setPreset(p);
-      // Programs don't consume time on the original — but to keep the
-      // sequencer moving we treat them as a one-beat rest equivalent.
-      this.nextNoteTime += spb;
     } else if (step.type === 'rest') {
-      this.nextNoteTime += spb * step.durationBeats;
+      // No-op — tick budget already accounted for by the subdivision.
     } else {
       const note = step.note;
-      const at = this.nextNoteTime;
-      const dur = spb * step.durationBeats;
-      window.setTimeout(
-        () => this.synth.noteOn(note, step.velocity / 127),
-        Math.max(0, (at - ctx().currentTime) * 1000),
-      );
-      window.setTimeout(
-        () => this.synth.noteOff(note),
-        Math.max(0, (at - ctx().currentTime + dur * 0.9) * 1000),
-      );
-      this.nextNoteTime += dur;
+      const velocity = step.velocity / 127;
+      // Approximate gate: 80% of one subdivision at the current BPM.
+      const stepMs = (60_000 / this.transport.getBpm()) * (this.clockSubdiv / 24);
+      const gateMs = stepMs * 0.8 * step.durationBeats;
+      this.synth.noteOn(note, velocity);
+      setTimeout(() => this.synth.noteOff(note), gateMs);
     }
 
     this.currentStepIdx = (this.currentStepIdx + 1) % seq.steps.length;
   }
 }
-
-const ctx = (): AudioContext => getAudioContext();

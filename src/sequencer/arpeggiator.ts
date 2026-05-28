@@ -13,21 +13,20 @@
  * {@link Arpeggiator.removeHeldNote}; the engine schedules the actual voice
  * `noteOn` / `noteOff` calls via two callbacks supplied at construction.
  *
- * Timing:
- *   - source = 'INT' → JS interval scheduler at the arpeggiator's BPM
- *     scaled by subdivision (1/4 .. 1/32).
- *   - source = 'EXT' → subscribes to {@link externalClock}; advances every
- *     `subdivision` ticks of the 24-ppqn MIDI clock.
+ * Timing: the arpeggiator no longer owns a clock. It subscribes to the
+ * shared {@link TransportClock} and advances every `subdivision` ticks of
+ * the 24-ppqn signal. Tempo, source (INT/EXT) and transport state are all
+ * decided by the transport — so the arp stays in lockstep with the
+ * Sequencer automatically.
  *
  * Hold latch: when `hold` is set, removeHeldNote is ignored; toggling hold
  * off clears the latched set. Lets the user "freeze" an arpeggio and walk
  * away from the keys, just like the original Memorymoog HOLD switch.
  */
 
-import { externalClock } from '../midi/external-clock';
+import { transportClock as defaultTransport, type TransportClock } from './transport-clock';
 
 export type ArpPattern = 'UP' | 'DOWN' | 'UP_DOWN' | 'UP_DOWN_INC' | 'RANDOM' | 'AS_PLAYED';
-export type ArpClockSource = 'INT' | 'EXT';
 /** Ticks-of-24ppqn per arpeggiator step. 6 = 16th note (default). */
 export type ArpSubdiv = 24 | 12 | 6 | 3;
 
@@ -55,8 +54,6 @@ export class Arpeggiator {
   private pattern: ArpPattern = 'UP';
   private octaveRange = 1; // 1..4
   private subdivision: ArpSubdiv = 6;
-  private bpm = 120;
-  private source: ArpClockSource = 'INT';
   private hold = false;
   /** Gate time as a fraction of step length (0..1). 0.8 = 80% legato-ish. */
   private gate = 0.8;
@@ -67,13 +64,32 @@ export class Arpeggiator {
   private cursor = 0;
 
   private running = false;
-  private internalScheduler: number | null = null;
-  private externalUnsub: (() => void) | null = null;
-  private externalTickCounter = 0;
+  private transportUnsub: (() => void) | null = null;
+  private tickCounter = 0;
   private lastPlayed: number | null = null;
   private lastPlayedReleaseTimer: number | null = null;
 
-  constructor(private cb: ArpCallbacks) {}
+  /** Injected transport — defaults to the singleton; tests pass their own. */
+  private transport: TransportClock;
+
+  constructor(private cb: ArpCallbacks, transport: TransportClock = defaultTransport) {
+    this.transport = transport;
+    // Listen the whole life of the arp; cheap and means we never miss a
+    // tick due to subscribe/unsubscribe races.
+    this.transportUnsub = this.transport.subscribe({
+      onTick: () => {
+        if (!this.running) return;
+        this.tickCounter++;
+        if (this.tickCounter >= this.subdivision) {
+          this.tickCounter = 0;
+          this.fireStep();
+        }
+      },
+      onTransport: (state) => {
+        if (state === 'stopped') this.releaseLastPlayed();
+      },
+    });
+  }
 
   // ── configuration ─────────────────────────────────────────────────────
   setEnabled(on: boolean): void {
@@ -101,28 +117,16 @@ export class Arpeggiator {
   }
   setSubdivision(s: ArpSubdiv): void {
     this.subdivision = s;
-    if (this.source === 'INT' && this.running) this.restartInternal();
+    this.tickCounter = 0;
   }
   getSubdivision(): ArpSubdiv {
     return this.subdivision;
   }
   setBpm(bpm: number): void {
-    this.bpm = Math.max(30, Math.min(360, bpm));
-    if (this.source === 'INT' && this.running) this.restartInternal();
+    this.transport.setBpm(bpm);
   }
   getBpm(): number {
-    return this.bpm;
-  }
-  setSource(src: ArpClockSource): void {
-    if (src === this.source) return;
-    this.source = src;
-    if (this.running) {
-      this.stopClockSubscriptions();
-      this.startClockSubscriptions();
-    }
-  }
-  getSource(): ArpClockSource {
-    return this.source;
+    return this.transport.getBpm();
   }
   setHold(h: boolean): void {
     if (h === this.hold) return;
@@ -163,6 +167,15 @@ export class Arpeggiator {
     this.pressOrder.length = 0;
     this.sequence = [];
     this.cursor = 0;
+  }
+
+  /** Free the transport subscription — only call on Synth teardown. */
+  destroy(): void {
+    if (this.transportUnsub) {
+      this.transportUnsub();
+      this.transportUnsub = null;
+    }
+    this.flushAllNotes();
   }
 
   // ── core loop ─────────────────────────────────────────────────────────
@@ -232,7 +245,6 @@ export class Arpeggiator {
       this.lastPlayedReleaseTimer = setTimeout(() => {
         if (this.lastPlayed !== null) {
           this.cb.noteOff(this.lastPlayed);
-          // We don't null lastPlayed here — fireStep() will check + nullify.
         }
         this.lastPlayedReleaseTimer = null;
       }, releaseInMs) as unknown as number;
@@ -250,68 +262,21 @@ export class Arpeggiator {
     }
   }
 
-  /** Step length in seconds for INT clock — derived from BPM + subdivision. */
+  /** Step length in seconds at the current global tempo. */
   private computeStepSeconds(): number {
-    if (this.source === 'EXT') {
-      // External: we don't really know — use a reasonable default for gate timing.
-      // The 24-ppqn external clock gives us ticks; one quarter at the most recent
-      // BPM estimate ≈ 60/bpm. Step = quarter * (subdivision / 24).
-      const extBpm = externalClock.getBpm();
-      return ((60 / extBpm) * this.subdivision) / 24;
-    }
-    return ((60 / this.bpm) * this.subdivision) / 24;
+    return ((60 / this.transport.getBpm()) * this.subdivision) / 24;
   }
 
-  // ── start/stop ────────────────────────────────────────────────────────
+  // ── start/stop helpers (engagement with the shared transport) ─────────
   private startIfNeeded(): void {
     if (this.running || !this.enabled || this.sequence.length === 0) return;
     this.running = true;
     this.cursor = 0;
-    this.startClockSubscriptions();
+    this.tickCounter = 0;
   }
   private stopAndFlush(): void {
     if (!this.running && this.lastPlayed === null) return;
     this.running = false;
-    this.stopClockSubscriptions();
     this.releaseLastPlayed();
-  }
-  private startClockSubscriptions(): void {
-    if (this.source === 'INT') {
-      this.restartInternal();
-    } else {
-      this.externalTickCounter = 0;
-      this.externalUnsub = externalClock.subscribe({
-        onTick: () => {
-          if (!this.running) return;
-          this.externalTickCounter++;
-          if (this.externalTickCounter >= this.subdivision) {
-            this.externalTickCounter = 0;
-            this.fireStep();
-          }
-        },
-        onTransport: (state) => {
-          if (state === 'stopped') this.releaseLastPlayed();
-        },
-      });
-    }
-  }
-  private stopClockSubscriptions(): void {
-    if (this.internalScheduler !== null) {
-      clearInterval(this.internalScheduler);
-      this.internalScheduler = null;
-    }
-    if (this.externalUnsub) {
-      this.externalUnsub();
-      this.externalUnsub = null;
-    }
-  }
-  private restartInternal(): void {
-    if (this.internalScheduler !== null) {
-      clearInterval(this.internalScheduler);
-      this.internalScheduler = null;
-    }
-    const stepMs = this.computeStepSeconds() * 1000;
-    if (stepMs <= 0) return;
-    this.internalScheduler = setInterval(() => this.fireStep(), stepMs) as unknown as number;
   }
 }

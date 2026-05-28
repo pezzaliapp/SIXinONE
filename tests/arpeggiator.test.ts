@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Arpeggiator, patternFromPresetValue } from '../src/sequencer/arpeggiator';
+import { TransportClock } from '../src/sequencer/transport-clock';
 
 function record(): {
   notes: number[];
@@ -40,7 +41,11 @@ describe('Arpeggiator sequence shapes', () => {
   ): number[] {
     vi.useFakeTimers();
     const rec = record();
-    const arp = new Arpeggiator({ noteOn: rec.noteOn, noteOff: rec.noteOff });
+    // Fresh transport under fake timers so the scheduler interval is paced
+    // by `vi.advanceTimersByTime`. The singleton is created at module load
+    // (before fake timers) and would tick on real time.
+    const transport = new TransportClock();
+    const arp = new Arpeggiator({ noteOn: rec.noteOn, noteOff: rec.noteOff }, transport);
     arp.setEnabled(true);
     arp.setBpm(120);
     arp.setSubdivision(6);
@@ -83,7 +88,8 @@ describe('Arpeggiator hold latch', () => {
   it('keeps notes after release when hold is on', () => {
     vi.useFakeTimers();
     const rec = record();
-    const arp = new Arpeggiator({ noteOn: rec.noteOn, noteOff: rec.noteOff });
+    const transport = new TransportClock();
+    const arp = new Arpeggiator({ noteOn: rec.noteOn, noteOff: rec.noteOff }, transport);
     arp.setEnabled(true);
     arp.setBpm(120);
     arp.setSubdivision(6);
@@ -103,7 +109,8 @@ describe('Arpeggiator hold latch', () => {
   it('clears latched notes when hold is turned off', () => {
     vi.useFakeTimers();
     const rec = record();
-    const arp = new Arpeggiator({ noteOn: rec.noteOn, noteOff: rec.noteOff });
+    const transport = new TransportClock();
+    const arp = new Arpeggiator({ noteOn: rec.noteOn, noteOff: rec.noteOff }, transport);
     arp.setEnabled(true);
     arp.setBpm(120);
     arp.setSubdivision(6);
