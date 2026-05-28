@@ -86,6 +86,8 @@ export interface VoiceConfig {
   midiNote: number;
   velocity: number; // 0..1
   startTime: number; // ctx.currentTime when noteOn fires
+  /** Optional global LFO bus; if provided, the voice taps it according to preset.lfo.dest. */
+  lfoBus?: AudioNode;
 }
 
 export class Voice {
@@ -113,6 +115,8 @@ export class Voice {
 
   private released = false;
   private endTime = Infinity;
+
+  private lfoTaps: GainNode[] = [];
 
   constructor(ctx: AudioContext, dest: AudioNode, config: VoiceConfig) {
     this.ctx = ctx;
@@ -174,6 +178,10 @@ export class Voice {
     this.noiseSrc.loop = true;
     this.noiseSrc.connect(this.noiseGain);
 
+    // Wire LFO modulation taps (creates gain nodes from the LFO bus to each
+    // selected destination, scaled by the preset's global modulationAmount).
+    if (config.lfoBus) this.wireLfoModulation(config.lfoBus, preset);
+
     // Schedule envelopes.
     this.scheduleEnvelopes(startTime, config.velocity);
 
@@ -182,6 +190,34 @@ export class Voice {
       for (const n of b.nodes) n.start(startTime);
     }
     this.noiseSrc.start(startTime);
+  }
+
+  private wireLfoModulation(lfoBus: AudioNode, preset: Preset): void {
+    const depth = preset.modulationAmount / 10; // 0..1
+    if (depth <= 0) return;
+    const dest = preset.lfo.dest;
+
+    // Pitch destinations (osc freq) — modulation in semitones, scaled to cents.
+    const pitchCentsDepth = depth * 700; // up to a ~5th of vibrato at max
+    if (dest.osc1) this.tap(lfoBus, this.osc1Bank.detuneParam, pitchCentsDepth);
+    if (dest.osc2) this.tap(lfoBus, this.osc2Bank.detuneParam, pitchCentsDepth);
+    if (dest.osc3 && !preset.osc3.low) {
+      this.tap(lfoBus, this.osc3Bank.detuneParam, pitchCentsDepth);
+    }
+
+    // Filter cutoff modulation — additive in Hz. Use a large headroom.
+    if (dest.filter) {
+      this.tap(lfoBus, this.filter.cutoff, depth * 2000);
+    }
+    // pw1/pw2/pw3 destinations are intentionally not wired yet (Step 15 PWM).
+  }
+
+  private tap(bus: AudioNode, param: AudioParam, depthScale: number): void {
+    const g = this.ctx.createGain();
+    g.gain.value = depthScale;
+    bus.connect(g);
+    g.connect(param);
+    this.lfoTaps.push(g);
   }
 
   private computeOsc1Hz(noteHz: number, o: Osc1State): number {
@@ -254,6 +290,21 @@ export class Voice {
     } catch {
       // already scheduled
     }
+    // Schedule LFO tap teardown shortly after stop.
+    const tearAt = stopAt + 0.1;
+    window.setTimeout(
+      () => {
+        for (const g of this.lfoTaps) {
+          try {
+            g.disconnect();
+          } catch {
+            /* ignore */
+          }
+        }
+        this.lfoTaps.length = 0;
+      },
+      Math.max(0, (tearAt - this.ctx.currentTime) * 1000),
+    );
   }
 
   get isReleasing(): boolean {

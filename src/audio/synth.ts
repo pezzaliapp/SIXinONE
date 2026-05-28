@@ -15,6 +15,7 @@ import { getAudioContext, getMasterBus, resumeAudio } from './context';
 import { Voice } from './voice';
 import { VoiceAllocator } from './voice-allocator';
 import { registerMoogLadder } from './filter';
+import { GlobalLfo } from './lfo';
 
 type PolyMode = 'POLY1' | 'POLY2' | 'POLY3' | 'POLY4';
 
@@ -29,6 +30,7 @@ export class Synth {
   private heldNotes = new Set<number>();
   private bendSemitones = 0;
   private reapTimer: number | null = null;
+  private lfo: GlobalLfo | null = null;
 
   constructor(initialPreset: Preset) {
     this.preset = initialPreset;
@@ -43,12 +45,27 @@ export class Synth {
     } catch (err) {
       console.warn('Moog ladder worklet unavailable; using BiquadFilter fallback', err);
     }
+    this.ensureLfo();
+  }
+
+  private ensureLfo(): GlobalLfo {
+    if (this.lfo) return this.lfo;
+    const ctx = getAudioContext();
+    this.lfo = new GlobalLfo(ctx);
+    this.lfo.setWave(this.preset.lfo.wave);
+    this.lfo.setRate(this.preset.lfo.rate);
+    this.lfo.start();
+    return this.lfo;
   }
 
   setPreset(p: Preset): void {
     this.preset = p;
-    // Step 3: leave already-playing voices alone; preset changes apply to NEW notes.
-    // TODO Step 10: optional "edit-in-place" mode that propagates to live voices.
+    // LFO is global — keep its rate/wave live so changes are immediately audible.
+    if (this.lfo) {
+      this.lfo.setRate(p.lfo.rate);
+      this.lfo.setWave(p.lfo.wave);
+    }
+    // Per-voice settings (filter, envelopes, mixer) apply to new notes only.
   }
 
   getPreset(): Preset {
@@ -69,6 +86,7 @@ export class Synth {
       midiNote,
       velocity,
       startTime: ctx.currentTime,
+      lfoBus: this.lfo?.output,
     });
     if (this.bendSemitones !== 0) voice.setPitchBendSemitones(this.bendSemitones);
     this.allocator.placeVoice(slotIdx, voice, midiNote, ctx.currentTime);
@@ -106,6 +124,7 @@ export class Synth {
       midiNote,
       velocity,
       startTime: ctx.currentTime,
+      lfoBus: this.lfo?.output,
     });
     this.allocator.placeVoice(0, voice, midiNote, ctx.currentTime);
     this.heldNotes.add(midiNote);
