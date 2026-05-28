@@ -39,6 +39,7 @@ export class MidiBridge {
   private input: MIDIInput | null = null;
   private output: MIDIOutput | null = null;
   private channel = 0; // 0 = omni
+  private channelFilterEnabled = true; // disable when MPE is active
   private thru = false;
   private listeners = new Set<MidiListener>();
   private status: MidiStatus = 'idle';
@@ -124,6 +125,10 @@ export class MidiBridge {
     this.channel = Math.max(0, Math.min(16, channel));
   }
 
+  setChannelFilterEnabled(enabled: boolean): void {
+    this.channelFilterEnabled = enabled;
+  }
+
   setThru(enabled: boolean): void {
     this.thru = enabled;
   }
@@ -145,8 +150,10 @@ export class MidiBridge {
     }
     const msg = parseMidi(data);
     if (!msg) return;
-    // Channel filter: 0 = omni
-    if (this.channel !== 0 && msg.channel !== this.channel - 1) return;
+    // System Real-Time + SongPos have no channel — always deliver.
+    if ('channel' in msg) {
+      if (this.channelFilterEnabled && this.channel !== 0 && msg.channel !== this.channel - 1) return;
+    }
     for (const l of this.listeners) l(msg);
   }
 

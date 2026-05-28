@@ -1,9 +1,8 @@
 /**
- * Small MIDI control panel — Request, Input device, Output device,
- * Channel, Thru toggle, and a status label.
+ * MIDI control panel — Request, Input device, Output device, Channel,
+ * Thru toggle, MPE config, controller meters, and a status label.
  *
- * Lives below the System Controller and pages itself when permission
- * changes / devices are hot-plugged.
+ * Pages itself when permission changes / devices are hot-plugged.
  */
 
 import type { Synth } from '../../audio/synth';
@@ -12,13 +11,16 @@ import {
   CC_ALL_NOTES_OFF,
   CC_MOD_WHEEL,
   CC_SUSTAIN,
+  CC_TIMBRE,
 } from '../../midi/messages';
 import { presetBank } from '../../data/preset-bank';
 import { loadPreset } from '../../state/store';
 import { pitchBendSemitones } from '../../data/preset-scales';
+import { createMpeRouter, type MpeRouter } from '../../midi/mpe';
 
 export interface MidiPanelHandle {
   element: HTMLElement;
+  mpe: MpeRouter;
 }
 
 export function createMidiPanel(synth: Synth): MidiPanelHandle {
@@ -87,7 +89,10 @@ export function createMidiPanel(synth: Synth): MidiPanelHandle {
   const sustainLed = document.createElement('div');
   sustainLed.className = 'midi-led';
   sustainLed.innerHTML = '<span class="midi-led-dot"></span><span class="midi-led-label">SUSTAIN</span>';
-  controllers.append(modBar, bendBar, sustainLed);
+  const extClkLed = document.createElement('div');
+  extClkLed.className = 'midi-led';
+  extClkLed.innerHTML = '<span class="midi-led-dot"></span><span class="midi-led-label">EXT CLK</span><span class="midi-led-aux">—</span>';
+  controllers.append(modBar, bendBar, sustainLed, extClkLed);
   root.appendChild(controllers);
 
   const modFill = modBar.querySelector('.midi-meter-fill') as HTMLElement;
@@ -95,11 +100,70 @@ export function createMidiPanel(synth: Synth): MidiPanelHandle {
 
   synth.onControllerState(({ modWheel, sustain, bend }) => {
     modFill.style.width = `${(modWheel / 127) * 100}%`;
-    // Bend is in semitones — assume up to ±12 for display; center is 50%.
     const bendPct = Math.max(-1, Math.min(1, bend / 12));
     bendFill.style.width = `${Math.abs(bendPct) * 50}%`;
     bendFill.style.marginLeft = bendPct >= 0 ? '50%' : `${50 - Math.abs(bendPct) * 50}%`;
     sustainLed.dataset.active = String(sustain);
+  });
+
+  // ── MPE configuration box ──────────────────────────────────────────────
+  const mpe = createMpeRouter();
+  const mpeBox = document.createElement('div');
+  mpeBox.className = 'midi-mpe-box';
+  mpeBox.innerHTML = `
+    <h4 class="midi-mpe-title">MPE <span class="midi-mpe-status">off</span></h4>
+    <label class="midi-mpe-field">
+      <span>Mode</span>
+      <select class="midi-select midi-mpe-mode">
+        <option value="off">Off</option>
+        <option value="auto" selected>Auto</option>
+        <option value="on">On</option>
+      </select>
+    </label>
+    <label class="midi-mpe-field">
+      <span>Zone</span>
+      <select class="midi-select midi-mpe-zone">
+        <option value="lower" selected>Lower (ch 1 master)</option>
+        <option value="upper">Upper (ch 16 master)</option>
+      </select>
+    </label>
+    <label class="midi-mpe-field">
+      <span>Bend ±</span>
+      <input class="midi-mpe-bend" type="number" value="48" min="1" max="96" step="1" />
+    </label>
+    <div class="midi-mpe-dests">
+      <span class="midi-mpe-dest-title">Pressure →</span>
+      <label><input type="checkbox" data-dest="pressureVca" checked /> VCA</label>
+      <label><input type="checkbox" data-dest="pressureLfo" checked /> LFO depth</label>
+      <label><input type="checkbox" data-dest="pressureFilter" /> Filter</label>
+    </div>
+    <div class="midi-mpe-dests">
+      <span class="midi-mpe-dest-title">Timbre →</span>
+      <label><input type="checkbox" data-dest="timbreFilter" checked /> Filter</label>
+    </div>
+  `;
+  root.appendChild(mpeBox);
+
+  const mpeStatusEl = mpeBox.querySelector('.midi-mpe-status') as HTMLElement;
+  const mpeModeSel = mpeBox.querySelector('.midi-mpe-mode') as HTMLSelectElement;
+  const mpeZoneSel = mpeBox.querySelector('.midi-mpe-zone') as HTMLSelectElement;
+  const mpeBendInp = mpeBox.querySelector('.midi-mpe-bend') as HTMLInputElement;
+  const mpeDestInps = Array.from(mpeBox.querySelectorAll<HTMLInputElement>('[data-dest]'));
+
+  mpeModeSel.addEventListener('change', () => mpe.setMode(mpeModeSel.value as 'off' | 'auto' | 'on'));
+  mpeZoneSel.addEventListener('change', () => mpe.setZone(mpeZoneSel.value as 'lower' | 'upper'));
+  mpeBendInp.addEventListener('change', () => mpe.setBendRange(parseInt(mpeBendInp.value, 10)));
+  for (const inp of mpeDestInps) {
+    inp.addEventListener('change', () => {
+      mpe.setDestinations({ [inp.dataset.dest as string]: inp.checked } as never);
+    });
+  }
+  mpe.onChange(() => {
+    const active = mpe.isActive();
+    mpeStatusEl.textContent = active ? `${mpe.config.zone} zone` : 'off';
+    mpeStatusEl.dataset.active = String(active);
+    midiBridge.setChannelFilterEnabled(!active);
+    channelSelect.disabled = active || midiBridge.getStatus() !== 'granted';
   });
 
   function renderStatus(s: MidiStatus): void {
@@ -115,7 +179,7 @@ export function createMidiPanel(synth: Synth): MidiPanelHandle {
     const disabled = s !== 'granted';
     inSelect.disabled = disabled;
     outSelect.disabled = disabled;
-    channelSelect.disabled = disabled;
+    channelSelect.disabled = disabled || mpe.isActive();
     thruBtn.disabled = disabled;
   }
 
@@ -164,23 +228,49 @@ export function createMidiPanel(synth: Synth): MidiPanelHandle {
 
   // Subscribe synth to incoming MIDI.
   midiBridge.subscribe((msg) => {
+    mpe.observe(msg);
+    const mpeOn = mpe.isActive();
+    const master = mpe.masterChannel();
     switch (msg.type) {
       case 'noteOn':
-        synth.noteOn(msg.note, msg.velocity / 127);
+        if (mpeOn && mpe.isVoiceChannel(msg.channel)) {
+          synth.noteOn(msg.note, msg.velocity / 127, msg.channel);
+        } else {
+          synth.noteOn(msg.note, msg.velocity / 127);
+        }
         break;
       case 'noteOff':
         synth.noteOff(msg.note);
         break;
       case 'pitchBend': {
-        const preset = synth.getPreset();
-        const range = pitchBendSemitones(preset.pitchBendAmount);
-        synth.setPitchBend(msg.value * range);
+        if (mpeOn && mpe.isVoiceChannel(msg.channel)) {
+          synth.mpeBendChannel(msg.channel, msg.value * mpe.config.bendRange);
+        } else if (!mpeOn || msg.channel === master) {
+          const preset = synth.getPreset();
+          const range = pitchBendSemitones(preset.pitchBendAmount);
+          synth.setPitchBend(msg.value * range);
+        }
+        break;
+      }
+      case 'channelPressure': {
+        if (mpeOn && mpe.isVoiceChannel(msg.channel)) {
+          synth.mpePressureChannel(msg.channel, msg.value, {
+            vca: mpe.config.destinations.pressureVca,
+            lfo: mpe.config.destinations.pressureLfo,
+            filter: mpe.config.destinations.pressureFilter,
+          });
+        }
         break;
       }
       case 'cc':
         if (msg.controller === CC_ALL_NOTES_OFF) synth.panic();
         else if (msg.controller === CC_MOD_WHEEL) synth.setModWheel(msg.value);
         else if (msg.controller === CC_SUSTAIN) synth.setSustainPedal(msg.value >= 64);
+        else if (mpeOn && msg.controller === CC_TIMBRE && mpe.isVoiceChannel(msg.channel)) {
+          if (mpe.config.destinations.timbreFilter) {
+            synth.mpeTimbreChannel(msg.channel, msg.value / 127);
+          }
+        }
         break;
       case 'program':
         if (msg.number < 100) loadPreset(presetBank.get(msg.number));
@@ -188,5 +278,5 @@ export function createMidiPanel(synth: Synth): MidiPanelHandle {
     }
   });
 
-  return { element: root };
+  return { element: root, mpe };
 }

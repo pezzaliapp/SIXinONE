@@ -6,11 +6,23 @@ export const NOTE_OFF = 0x80;
 export const NOTE_ON = 0x90;
 export const CONTROL_CHANGE = 0xb0;
 export const PROGRAM_CHANGE = 0xc0;
+export const CHANNEL_PRESSURE = 0xd0;
 export const PITCH_BEND = 0xe0;
 
+export const SYS_CLOCK = 0xf8;
+export const SYS_START = 0xfa;
+export const SYS_CONTINUE = 0xfb;
+export const SYS_STOP = 0xfc;
+export const SYS_SONG_POS = 0xf2;
+
 export const CC_MOD_WHEEL = 1;
+export const CC_TIMBRE = 74;
 export const CC_SUSTAIN = 64;
 export const CC_ALL_NOTES_OFF = 123;
+export const CC_RPN_MSB = 101;
+export const CC_RPN_LSB = 100;
+export const CC_DATA_MSB = 6;
+export const CC_DATA_LSB = 38;
 
 export interface NoteOnMsg {
   type: 'noteOn';
@@ -41,19 +53,57 @@ export interface ProgramChangeMsg {
   channel: number;
   number: number;
 }
+export interface ChannelPressureMsg {
+  type: 'channelPressure';
+  channel: number;
+  /** 0..1 */
+  value: number;
+}
+export interface ClockMsg {
+  type: 'clock';
+}
+export interface TransportMsg {
+  type: 'start' | 'continue' | 'stop';
+}
+export interface SongPosMsg {
+  type: 'songPos';
+  /** Position in 16th notes. */
+  position: number;
+}
 
-export type MidiMessage = NoteOnMsg | NoteOffMsg | CCMsg | PitchBendMsg | ProgramChangeMsg;
+export type MidiMessage =
+  | NoteOnMsg
+  | NoteOffMsg
+  | CCMsg
+  | PitchBendMsg
+  | ProgramChangeMsg
+  | ChannelPressureMsg
+  | ClockMsg
+  | TransportMsg
+  | SongPosMsg;
 
 export function parseMidi(data: Uint8Array): MidiMessage | null {
   if (data.length < 1) return null;
   const status = data[0]!;
+
+  // System Real-Time messages (single byte status 0xF8..0xFF), plus
+  // SongPos (0xF2) — these have no channel.
+  if (status === SYS_CLOCK) return { type: 'clock' };
+  if (status === SYS_START) return { type: 'start' };
+  if (status === SYS_CONTINUE) return { type: 'continue' };
+  if (status === SYS_STOP) return { type: 'stop' };
+  if (status === SYS_SONG_POS) {
+    const lsb = data[1] ?? 0;
+    const msb = data[2] ?? 0;
+    return { type: 'songPos', position: (msb << 7) | lsb };
+  }
+
   const command = status & 0xf0;
   const channel = status & 0x0f;
 
   if (command === NOTE_ON || command === NOTE_OFF) {
     const note = data[1] ?? 0;
     const velocity = data[2] ?? 0;
-    // A NoteOn with velocity 0 is a NoteOff (running-status idiom).
     if (command === NOTE_ON && velocity > 0) {
       return { type: 'noteOn', channel, note, velocity };
     }
@@ -75,6 +125,9 @@ export function parseMidi(data: Uint8Array): MidiMessage | null {
   }
   if (command === PROGRAM_CHANGE) {
     return { type: 'program', channel, number: data[1] ?? 0 };
+  }
+  if (command === CHANNEL_PRESSURE) {
+    return { type: 'channelPressure', channel, value: (data[1] ?? 0) / 127 };
   }
   return null;
 }
