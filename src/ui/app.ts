@@ -10,8 +10,10 @@ import { createFxRack } from './components/fx-rack';
 import { createCassette } from './components/cassette';
 import { createArpPanel } from './components/arp-panel';
 import { createTransportPanel } from './components/transport-panel';
+import { createDemosPanel } from './components/demos-panel';
 import { Sequencer } from '../sequencer/sequencer';
 import { createHelpButton } from './components/help-panel';
+import { DemoPlayer } from '../audio/demo-player';
 import { currentPreset, loadPreset } from '../state/store';
 
 let synth: Synth | null = null;
@@ -95,6 +97,16 @@ export function bootApp(root: HTMLElement): void {
   `;
   const brand = header.querySelector('.brand');
   if (brand) brand.appendChild(createHelpButton());
+
+  const demoPlayer = new DemoPlayer(ensureSynth());
+  const demosPanel = createDemosPanel(demoPlayer);
+  if (brand) brand.appendChild(demosPanel.triggerButton);
+  document.body.appendChild(demosPanel.panel);
+  // Audio context must be running for demos to play — clicking the trigger
+  // counts as a user gesture, but we explicitly resume on first interaction.
+  demosPanel.triggerButton.addEventListener('click', () => {
+    void ensureSynth().start();
+  });
 
   const presetBar = document.createElement('nav');
   presetBar.className = 'preset-bar';
