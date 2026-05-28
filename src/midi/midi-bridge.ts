@@ -178,6 +178,16 @@ export class MidiBridge {
     if (!this.output) return;
     this.output.send(encodeProgramChange(this.channel === 0 ? 0 : this.channel - 1, number));
   }
+  /** System real-time clock tick (0xF8) — no channel. */
+  sendClock(): void {
+    if (!this.output) return;
+    this.output.send(new Uint8Array([0xf8]));
+  }
+  sendTransport(kind: 'start' | 'continue' | 'stop'): void {
+    if (!this.output) return;
+    const byte = kind === 'start' ? 0xfa : kind === 'continue' ? 0xfb : 0xfc;
+    this.output.send(new Uint8Array([byte]));
+  }
 }
 
 export const midiBridge = new MidiBridge();

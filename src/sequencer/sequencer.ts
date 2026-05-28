@@ -24,6 +24,7 @@ import type { Synth } from '../audio/synth';
 import { getAudioContext } from '../audio/context';
 import { presetBank } from '../data/preset-bank';
 import { subscribeNote } from '../state/note-bus';
+import { externalClock } from '../midi/external-clock';
 
 export type StepEvent =
   | { type: 'note'; note: number; velocity: number; durationBeats: number }
@@ -31,6 +32,8 @@ export type StepEvent =
   | { type: 'program'; number: number };
 
 export type SequencerMode = 'STEP' | 'CONTINUOUS' | 'SYNC_EXT';
+/** External-clock subdivision: how many 24-ppqn ticks advance one step. */
+export type ClockSubdiv = 24 | 12 | 6 | 3; // 1/4, 1/8, 1/16, 1/32
 
 export class Sequence {
   steps: StepEvent[] = [];
@@ -53,6 +56,13 @@ export class Sequencer {
   private mode: SequencerMode = 'CONTINUOUS';
   private running = false;
   private recording = false;
+  private clockSubdiv: ClockSubdiv = 6; // default = 16th note steps
+  private externalTickCounter = 0;
+  private externalClockUnsub: (() => void) | null = null;
+  private externalClockEverPresent = false;
+  /** Callback invoked once per outgoing 24-ppqn tick when sending clock. */
+  private clockOutCb: ((tickIndex: number) => void) | null = null;
+  private clockOutTimer: number | null = null;
 
   private nextNoteTime = 0;
   private currentStepIdx = 0;
@@ -89,6 +99,11 @@ export class Sequencer {
 
   setBpm(bpm: number): void {
     this.bpm = Math.max(30, Math.min(300, bpm));
+    // Re-pace the clock-output ticker so DAWs in slave mode track tempo changes.
+    if (this.clockOutTimer !== null) {
+      this.stopClockOut();
+      if (this.running && this.mode === 'CONTINUOUS') this.startClockOut();
+    }
   }
   getBpm(): number {
     return this.bpm;
@@ -97,10 +112,29 @@ export class Sequencer {
   setMode(mode: SequencerMode): void {
     this.mode = mode;
     if (mode === 'STEP') this.stop();
+    if (mode === 'SYNC_EXT') this.subscribeExternalClock();
+    else this.unsubscribeExternalClock();
     this.fire();
   }
   getMode(): SequencerMode {
     return this.mode;
+  }
+
+  setClockSubdiv(sub: ClockSubdiv): void {
+    this.clockSubdiv = sub;
+  }
+  getClockSubdiv(): ClockSubdiv {
+    return this.clockSubdiv;
+  }
+
+  /**
+   * Register a sender for outgoing 24-ppqn ticks. When non-null and the
+   * sequencer is running internally, ticks are emitted at the internal BPM.
+   */
+  setClockOutput(cb: ((tickIndex: number) => void) | null): void {
+    this.clockOutCb = cb;
+    if (!cb) this.stopClockOut();
+    else if (this.running && this.mode === 'CONTINUOUS') this.startClockOut();
   }
 
   isRunning(): boolean {
@@ -144,7 +178,10 @@ export class Sequencer {
     this.currentStepIdx = 0;
     this.nextNoteTime = ctx.currentTime + 0.05;
     this.running = true;
-    if (this.mode === 'CONTINUOUS') this.startScheduler();
+    if (this.mode === 'CONTINUOUS') {
+      this.startScheduler();
+      this.startClockOut();
+    }
     this.fire();
   }
 
@@ -155,14 +192,87 @@ export class Sequencer {
       window.clearInterval(this.schedulerId);
       this.schedulerId = null;
     }
+    this.stopClockOut();
     this.synth.panic();
     this.fire();
   }
 
-  /** External clock hook — call once per quarter-note tick to advance. */
+  /** Direct external tick — kept for backwards compat / manual stepping. */
   externalTick(): void {
     if (!this.running || this.mode !== 'SYNC_EXT') return;
     this.fireStep();
+  }
+
+  // ── External clock plumbing ──────────────────────────────────────────
+  private subscribeExternalClock(): void {
+    if (this.externalClockUnsub) return;
+    this.externalTickCounter = 0;
+    this.externalClockUnsub = externalClock.subscribe({
+      onTick: () => {
+        if (this.mode !== 'SYNC_EXT' || !this.running) return;
+        this.externalTickCounter++;
+        if (this.externalTickCounter >= this.clockSubdiv) {
+          this.externalTickCounter = 0;
+          this.fireStep();
+        }
+      },
+      onTransport: (state) => {
+        if (this.mode !== 'SYNC_EXT') return;
+        if (state === 'running') {
+          this.externalClockEverPresent = true;
+          this.externalTickCounter = 0;
+          if (!this.running) this.start();
+        } else if (state === 'stopped') {
+          if (this.running) this.stop();
+        }
+      },
+      onSongPos: (positionIn16ths) => {
+        if (this.mode !== 'SYNC_EXT') return;
+        const seq = this.getCurrentSequence();
+        if (seq.steps.length === 0) return;
+        // Default 16th-note steps: position in 16ths maps 1:1 to step idx.
+        this.currentStepIdx = positionIn16ths % seq.steps.length;
+        this.externalTickCounter = 0;
+        this.fire();
+      },
+      onPresenceChange: (present) => {
+        if (this.mode !== 'SYNC_EXT' || !this.running) return;
+        // Fall back to internal once we've ever had external clock and now
+        // it's gone — that's the "cable unplugged" scenario.
+        if (!present && this.externalClockEverPresent) {
+          this.mode = 'CONTINUOUS';
+          this.startScheduler();
+          this.fire();
+        }
+      },
+    });
+  }
+  private unsubscribeExternalClock(): void {
+    if (this.externalClockUnsub) {
+      this.externalClockUnsub();
+      this.externalClockUnsub = null;
+    }
+    this.externalClockEverPresent = false;
+  }
+
+  // ── Internal clock output ────────────────────────────────────────────
+  private startClockOut(): void {
+    if (!this.clockOutCb || this.clockOutTimer !== null) return;
+    // 24 ticks per quarter at the current BPM. We don't need sample-accurate
+    // pacing — a JS setInterval is good enough for sending MIDI clock to a
+    // DAW master timeline.
+    const intervalMs = (60_000 / Math.max(30, Math.min(300, this.bpm))) / 24;
+    let counter = 0;
+    this.clockOutTimer = window.setInterval(() => {
+      this.clockOutCb?.(counter);
+      counter = (counter + 1) % (24 * 1024);
+    }, intervalMs);
+  }
+  private stopClockOut(): void {
+    if (this.clockOutTimer !== null) {
+      window.clearInterval(this.clockOutTimer);
+      this.clockOutTimer = null;
+    }
   }
 
   /** Manually advance one step (STEP mode). */

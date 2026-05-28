@@ -3,7 +3,8 @@
  * Lives below the MIDI strip.
  */
 
-import type { Sequencer, SequencerMode } from '../../sequencer/sequencer';
+import type { Sequencer, SequencerMode, ClockSubdiv } from '../../sequencer/sequencer';
+import { midiBridge } from '../../midi/midi-bridge';
 
 export interface SequencerPanelHandle {
   element: HTMLElement;
@@ -82,10 +83,42 @@ export function createSequencerPanel(seq: Sequencer): SequencerPanelHandle {
   }
   modeSelect.addEventListener('change', () => seq.setMode(modeSelect.value as SequencerMode));
 
+  // External clock subdivision (only relevant in SYNC_EXT).
+  const subdivSelect = document.createElement('select');
+  subdivSelect.className = 'midi-select';
+  for (const [val, label] of [
+    [24, '1/4'],
+    [12, '1/8'],
+    [6, '1/16'],
+    [3, '1/32'],
+  ] as const) {
+    const opt = document.createElement('option');
+    opt.value = String(val);
+    opt.textContent = label;
+    if (val === seq.getClockSubdiv()) opt.selected = true;
+    subdivSelect.appendChild(opt);
+  }
+  subdivSelect.addEventListener('change', () =>
+    seq.setClockSubdiv(parseInt(subdivSelect.value, 10) as ClockSubdiv),
+  );
+
+  // MIDI Clock output toggle — when on, we wire the seq's internal clock
+  // out to the MIDI bridge so DAWs can slave to SIXinONE.
+  const clockOutBtn = document.createElement('button');
+  clockOutBtn.type = 'button';
+  clockOutBtn.className = 'panel-switch sm';
+  clockOutBtn.innerHTML = '<span class="panel-switch-led"></span><span class="panel-switch-label">CLK OUT</span>';
+  let clockOutActive = false;
+  clockOutBtn.addEventListener('click', () => {
+    clockOutActive = !clockOutActive;
+    clockOutBtn.dataset.active = String(clockOutActive);
+    seq.setClockOutput(clockOutActive ? (() => midiBridge.sendClock()) : null);
+  });
+
   const stepCount = document.createElement('span');
   stepCount.className = 'seq-count';
 
-  controls.append(recBtn, playBtn, stepBtn, clearBtn, modeSelect, bpmWrap, stepCount);
+  controls.append(recBtn, playBtn, stepBtn, clearBtn, modeSelect, subdivSelect, clockOutBtn, bpmWrap, stepCount);
   root.appendChild(controls);
 
   function render(): void {
