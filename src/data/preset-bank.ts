@@ -9,6 +9,7 @@
 import type { Preset } from './preset';
 import { clonePreset, createBlankPreset } from './preset';
 import { TEST_PRESETS } from './test-presets';
+import { FACTORY_PRESETS } from './factory-presets';
 
 const FALLBACK_NAMES: string[] = [
   // 00–49
@@ -94,4 +95,4 @@ export class PresetBank {
   }
 }
 
-export const presetBank = new PresetBank();
+export const presetBank = new PresetBank(FACTORY_PRESETS);
