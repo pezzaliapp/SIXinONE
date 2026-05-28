@@ -15,6 +15,7 @@ import { getAudioContext, getMasterBus, resumeAudio } from './context';
 import { Voice } from './voice';
 import { VoiceAllocator } from './voice-allocator';
 import { registerMoogLadder } from './filter';
+import { registerPwmOscillator } from './pwm-oscillator';
 import { GlobalLfo } from './lfo';
 
 type PolyMode = 'POLY1' | 'POLY2' | 'POLY3' | 'POLY4';
@@ -40,10 +41,16 @@ export class Synth {
   /** Must be called from a user gesture (click, keypress) the first time. */
   async start(): Promise<void> {
     await resumeAudio();
+    const ctx = getAudioContext();
     try {
-      await registerMoogLadder(getAudioContext());
+      await registerMoogLadder(ctx);
     } catch (err) {
       console.warn('Moog ladder worklet unavailable; using BiquadFilter fallback', err);
+    }
+    try {
+      await registerPwmOscillator(ctx);
+    } catch (err) {
+      console.warn('PWM oscillator worklet unavailable; using square fallback', err);
     }
     this.ensureLfo();
   }

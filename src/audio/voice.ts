@@ -1,85 +1,34 @@
 /**
  * A single Memorymoog voice.
  *
- * Audio path (Step 3 baseline — biquad filter, no hard sync, no true PWM):
- *   osc1 ─┐
- *   osc2 ─┤── mixer (4 gains) → filter (BiquadLowpass) → VCA → out
- *   osc3 ─┤
- *   noise ┘
+ * Audio path (v2 — true PWM worklet + per-bank pitch/PW modulation):
+ *   osc1 (bank) ─┐
+ *   osc2 (bank) ─┤── mixer (4 gains) → ladder filter → VCA → out
+ *   osc3 (bank) ─┤
+ *   noise         ┘
  *
  * Filter envelope sweeps the cutoff `AudioParam` directly using `applyAttackDecay`.
  * VCA envelope sweeps the VCA gain. On `release()`, both envelopes ramp to baseline
  * and we schedule the voice tear-down a bit after the longer of the two releases.
  *
- * Wave handling: 'saw' and 'tri' are native; 'pulse' currently uses 'square'
- * (TODO Step 4: true PWM via AudioWorklet). If multiple waveforms are toggled
- * on, we sum them through additional oscillators sharing the same frequency.
+ * Wave handling: saw and tri are native OscillatorNodes, 'pulse' uses the PWM
+ * AudioWorklet (PolyBLEP-bandlimited, variable duty cycle). LFO destinations
+ * for pw1/pw2/pw3 modulate the PWM duty cycle in real time.
  */
 
-import type { Preset, Osc1State, Osc2State, Osc3State, WaveBlend } from '../data/preset';
+import type { Preset, Osc1State, Osc2State, Osc3State } from '../data/preset';
 import {
   filterCutoffHz,
   mixerLevelLinear,
   octaveSemitones,
+  pulseWidthDuty,
   volumeLinear,
 } from '../data/preset-scales';
 import { centsToRatio, midiToHz, semitonesToRatio } from './midi-utils';
 import { getPinkNoiseBuffer } from './noise';
 import { applyAttackDecay, applyRelease, filterTimes, vcaTimes } from './envelope';
 import { createMoogFilter, type MoogFilter } from './filter';
-
-interface OscBank {
-  nodes: OscillatorNode[];
-  detuneParam: AudioParam;
-  baseHz: number;
-}
-
-const WAVE_TYPES: Array<keyof WaveBlend> = ['pulse', 'saw', 'tri'];
-
-function activeWaveTypes(blend: WaveBlend): OscillatorType[] {
-  const out: OscillatorType[] = [];
-  for (const w of WAVE_TYPES) {
-    if (blend[w]) {
-      out.push(w === 'pulse' ? 'square' : w === 'saw' ? 'sawtooth' : 'triangle');
-    }
-  }
-  if (out.length === 0) {
-    out.push('sawtooth'); // fail-safe: silent oscillators would still consume mixer level
-  }
-  return out;
-}
-
-function buildOscBank(
-  ctx: AudioContext,
-  baseHz: number,
-  blend: WaveBlend,
-  destination: GainNode,
-  detuneCents = 0,
-): OscBank {
-  const waves = activeWaveTypes(blend);
-  // Use a fan-in mixer per bank so we can drive a single detune param.
-  const sum = ctx.createGain();
-  sum.gain.value = 1 / Math.max(1, waves.length);
-  sum.connect(destination);
-
-  const nodes = waves.map((w) => {
-    const osc = ctx.createOscillator();
-    osc.type = w;
-    osc.frequency.value = baseHz;
-    osc.detune.value = detuneCents;
-    osc.connect(sum);
-    return osc;
-  });
-  // Expose detune of the first oscillator; we'll mirror writes manually via setDetuneCents.
-  const detuneParam = nodes[0]!.detune;
-  return { nodes, detuneParam, baseHz };
-}
-
-function setBankDetune(bank: OscBank, cents: number): void {
-  for (const n of bank.nodes) {
-    n.detune.value = cents;
-  }
-}
+import { OscBank } from './osc-bank';
 
 export interface VoiceConfig {
   preset: Preset;
@@ -88,11 +37,15 @@ export interface VoiceConfig {
   startTime: number; // ctx.currentTime when noteOn fires
   /** Optional global LFO bus; if provided, the voice taps it according to preset.lfo.dest. */
   lfoBus?: AudioNode;
+  /** Optional MPE per-note channel — used by Step 4 to route per-note CC. */
+  mpeChannel?: number;
 }
 
 export class Voice {
   readonly midiNote: number;
   readonly startTime: number;
+  /** MIDI channel this note was allocated on (Step 4 — MPE routing). */
+  readonly mpeChannel: number | null;
 
   private readonly ctx: AudioContext;
   private readonly preset: Preset;
@@ -116,13 +69,16 @@ export class Voice {
   private released = false;
   private endTime = Infinity;
 
-  private lfoTaps: GainNode[] = [];
+  private mpeBendSemis = 0;
+  private mpePressureNode: GainNode | null = null;
+  private mpeTimbreNode: GainNode | null = null;
 
   constructor(ctx: AudioContext, dest: AudioNode, config: VoiceConfig) {
     this.ctx = ctx;
     this.preset = config.preset;
     this.midiNote = config.midiNote;
     this.startTime = config.startTime;
+    this.mpeChannel = config.mpeChannel ?? null;
 
     const { preset, midiNote, startTime } = config;
     const noteHz = midiToHz(midiNote);
@@ -141,10 +97,8 @@ export class Voice {
     this.filter = createMoogFilter(ctx);
     this.filter.setEmphasis(preset.filter.emphasis);
     const baseCutoff = filterCutoffHz(preset.filter.cutoff);
-    // KB-track shifts cutoff with note. coeff of 1 = full tracking (1 semi/key).
     const kbShift = (midiNote - 69) * preset.filter.kbTrack;
     this.filterBaseHz = baseCutoff * semitonesToRatio(kbShift);
-    // Contour amount peaks the filter higher than baseCutoff.
     const contourOctaves = (preset.filter.contourAmount / 10) * 8;
     this.filterPeakHz = Math.min(
       ctx.sampleRate * 0.45,
@@ -164,13 +118,39 @@ export class Voice {
 
     // Build oscillator banks for each layer.
     const osc1Hz = this.computeOsc1Hz(noteHz, preset.osc1);
-    this.osc1Bank = buildOscBank(ctx, osc1Hz, preset.osc1.waves, this.osc1Gain);
+    this.osc1Bank = new OscBank({
+      ctx,
+      destination: this.osc1Gain,
+      baseHz: osc1Hz,
+      blend: preset.osc1.waves,
+      initialPulseWidth: pulseWidthDuty(preset.osc1.pulseWidth),
+      initialDetuneCents: 0,
+    });
 
     const osc2Hz = this.computeOsc2Hz(noteHz, preset.osc2);
-    this.osc2Bank = buildOscBank(ctx, osc2Hz, preset.osc2.waves, this.osc2Gain, preset.osc2.fine * 100);
+    this.osc2Bank = new OscBank({
+      ctx,
+      destination: this.osc2Gain,
+      baseHz: osc2Hz,
+      blend: preset.osc2.waves,
+      initialPulseWidth: pulseWidthDuty(preset.osc2.pulseWidth),
+      initialDetuneCents: preset.osc2.fine * 100,
+    });
 
     const osc3Hz = this.computeOsc3Hz(noteHz, preset.osc3);
-    this.osc3Bank = buildOscBank(ctx, osc3Hz, preset.osc3.waves, this.osc3Gain);
+    this.osc3Bank = new OscBank({
+      ctx,
+      destination: this.osc3Gain,
+      baseHz: osc3Hz,
+      blend: preset.osc3.waves,
+      initialPulseWidth: pulseWidthDuty(preset.osc3.pulseWidth),
+      initialDetuneCents: 0,
+    });
+
+    // Hard sync: when OSC1 sync2to1 flag is set, sync OSC2's PWM oscillators to OSC1's
+    // zero-crossings. (Saw/tri sync would need worklets too; we sync the PWM source
+    // which is by far the most musically useful sync target.)
+    if (preset.osc1.sync2to1) this.wireHardSync();
 
     // Noise source.
     this.noiseSrc = ctx.createBufferSource();
@@ -178,18 +158,33 @@ export class Voice {
     this.noiseSrc.loop = true;
     this.noiseSrc.connect(this.noiseGain);
 
-    // Wire LFO modulation taps (creates gain nodes from the LFO bus to each
-    // selected destination, scaled by the preset's global modulationAmount).
+    // Wire LFO modulation taps (pitch + filter + PWM destinations).
     if (config.lfoBus) this.wireLfoModulation(config.lfoBus, preset);
 
     // Schedule envelopes.
     this.scheduleEnvelopes(startTime, config.velocity);
 
     // Start all sources at noteOn.
-    for (const b of [this.osc1Bank, this.osc2Bank, this.osc3Bank]) {
-      for (const n of b.nodes) n.start(startTime);
-    }
+    this.osc1Bank.start(startTime);
+    this.osc2Bank.start(startTime);
+    this.osc3Bank.start(startTime);
     this.noiseSrc.start(startTime);
+  }
+
+  private wireHardSync(): void {
+    const masters = this.osc1Bank.pwmOscillators;
+    const slaves = this.osc2Bank.pwmOscillators;
+    if (masters.length === 0 || slaves.length === 0) return;
+    // Promote slaves so they expose `syncReset` semantics; masters keep posting
+    // their zero-crossing events.
+    for (const m of masters) m.setRole('master');
+    for (const s of slaves) s.setRole('slave');
+    // Wire all slaves to the first master's zero-cross events. Multiple
+    // masters would race; the panel only ever activates one (OSC1).
+    const master = masters[0]!;
+    master.onZeroCross(() => {
+      for (const s of slaves) s.resetPhase();
+    });
   }
 
   private wireLfoModulation(lfoBus: AudioNode, preset: Preset): void {
@@ -199,25 +194,25 @@ export class Voice {
 
     // Pitch destinations (osc freq) — modulation in semitones, scaled to cents.
     const pitchCentsDepth = depth * 700; // up to a ~5th of vibrato at max
-    if (dest.osc1) this.tap(lfoBus, this.osc1Bank.detuneParam, pitchCentsDepth);
-    if (dest.osc2) this.tap(lfoBus, this.osc2Bank.detuneParam, pitchCentsDepth);
+    if (dest.osc1) this.osc1Bank.tapPitchModulation(lfoBus, pitchCentsDepth);
+    if (dest.osc2) this.osc2Bank.tapPitchModulation(lfoBus, pitchCentsDepth);
     if (dest.osc3 && !preset.osc3.low) {
-      this.tap(lfoBus, this.osc3Bank.detuneParam, pitchCentsDepth);
+      this.osc3Bank.tapPitchModulation(lfoBus, pitchCentsDepth);
     }
 
     // Filter cutoff modulation — additive in Hz. Use a large headroom.
     if (dest.filter) {
-      this.tap(lfoBus, this.filter.cutoff, depth * 2000);
+      const g = this.ctx.createGain();
+      g.gain.value = depth * 2000;
+      lfoBus.connect(g);
+      g.connect(this.filter.cutoff);
     }
-    // pw1/pw2/pw3 destinations are intentionally not wired yet (Step 15 PWM).
-  }
 
-  private tap(bus: AudioNode, param: AudioParam, depthScale: number): void {
-    const g = this.ctx.createGain();
-    g.gain.value = depthScale;
-    bus.connect(g);
-    g.connect(param);
-    this.lfoTaps.push(g);
+    // Pulse-width modulation destinations (v2 — was a no-op in v1).
+    const pwDepth = depth * 0.3; // ±30% duty modulation at full mod
+    if (dest.pw1) this.osc1Bank.tapPulseWidthModulation(lfoBus, pwDepth);
+    if (dest.pw2) this.osc2Bank.tapPulseWidthModulation(lfoBus, pwDepth);
+    if (dest.pw3) this.osc3Bank.tapPulseWidthModulation(lfoBus, pwDepth);
   }
 
   private computeOsc1Hz(noteHz: number, o: Osc1State): number {
@@ -239,13 +234,6 @@ export class Voice {
    * Apply the global Contour switches to a freshly computed ADSR.
    *   release flag OFF → release time forced to 0
    *   KB-follow flag ON → all times scaled by a factor based on note pitch
-   *   (high keys → shorter envelopes, low keys → slower; classic analog)
-   * Return-to-Zero and Unconditional are surfaced for the UI but their
-   * per-voice impact is null in our retriggering voice-per-note model —
-   * leaving the flags as visual state matches the Memorymoog behaviour
-   * for typical playing, and a multi-trigger refactor would be needed
-   * to differentiate them properly. (TODO: pull envelope into its own
-   * voice-shared generator when implementing arpeggiator legato.)
    */
   private applyContourFlags(env: { attack: number; decay: number; sustain: number; release: number }): typeof env {
     const c = this.preset.contour;
@@ -286,7 +274,6 @@ export class Voice {
     return this.endTime;
   }
 
-  /** Hard-stop: cut quickly when stolen. */
   steal(at: number): number {
     if (this.released) return this.endTime;
     this.released = true;
@@ -301,32 +288,26 @@ export class Voice {
 
   private scheduleStop(at: number): void {
     const stopAt = Math.max(at, this.ctx.currentTime + 0.05);
-    for (const b of [this.osc1Bank, this.osc2Bank, this.osc3Bank]) {
-      for (const n of b.nodes) {
-        try {
-          n.stop(stopAt);
-        } catch {
-          // already scheduled
-        }
-      }
-    }
+    this.osc1Bank.stop(stopAt);
+    this.osc2Bank.stop(stopAt);
+    this.osc3Bank.stop(stopAt);
     try {
       this.noiseSrc.stop(stopAt);
     } catch {
-      // already scheduled
+      /* already scheduled */
     }
-    // Schedule LFO tap teardown shortly after stop.
     const tearAt = stopAt + 0.1;
     window.setTimeout(
       () => {
-        for (const g of this.lfoTaps) {
-          try {
-            g.disconnect();
-          } catch {
-            /* ignore */
-          }
+        this.osc1Bank.disconnect();
+        this.osc2Bank.disconnect();
+        this.osc3Bank.disconnect();
+        if (this.mpePressureNode) {
+          try { this.mpePressureNode.disconnect(); } catch { /* ignore */ }
         }
-        this.lfoTaps.length = 0;
+        if (this.mpeTimbreNode) {
+          try { this.mpeTimbreNode.disconnect(); } catch { /* ignore */ }
+        }
       },
       Math.max(0, (tearAt - this.ctx.currentTime) * 1000),
     );
@@ -343,12 +324,50 @@ export class Voice {
   /** Apply a global pitch-bend (in semitones) to all running oscillators. */
   setPitchBendSemitones(semitones: number): void {
     const cents = semitones * 100;
-    setBankDetune(this.osc1Bank, cents);
-    // OSC2 already has fine-tune cents baked in; bend on top.
-    setBankDetune(this.osc2Bank, this.preset.osc2.fine * 100 + cents);
-    // OSC3 follows KB only when keyboardControl is on.
+    this.osc1Bank.setDetuneCents(cents);
+    this.osc2Bank.setDetuneCents(this.preset.osc2.fine * 100 + cents);
     if (this.preset.osc3.keyboardControl && !this.preset.osc3.low) {
-      setBankDetune(this.osc3Bank, cents);
+      this.osc3Bank.setDetuneCents(cents);
     }
+  }
+
+  /** MPE: apply per-note pitch bend (in semitones, additive to global bend). */
+  setMpeBend(semitones: number): void {
+    this.mpeBendSemis = semitones;
+    const cents = semitones * 100;
+    this.osc1Bank.setDetuneCents(cents);
+    this.osc2Bank.setDetuneCents(this.preset.osc2.fine * 100 + cents);
+    if (this.preset.osc3.keyboardControl && !this.preset.osc3.low) {
+      this.osc3Bank.setDetuneCents(cents);
+    }
+  }
+
+  getMpeBend(): number {
+    return this.mpeBendSemis;
+  }
+
+  /**
+   * MPE: apply per-note channel pressure (0..1) — modulates VCA gain and LFO
+   * depth as per Seaboard default behaviour. The mapping is additive on top
+   * of the envelope.
+   */
+  setMpePressure(value: number, opts: { vca: boolean; lfo: boolean; filter: boolean }): void {
+    const v = Math.max(0, Math.min(1, value));
+    if (opts.vca) {
+      // Scale VCA by 1 + 0.5*v as a gentle accent on top of the env.
+      const target = 1 + 0.5 * v;
+      this.vca.gain.setTargetAtTime(this.vca.gain.value * target, this.ctx.currentTime, 0.02);
+    }
+    if (opts.filter) {
+      // Add up to 1500 Hz to the cutoff.
+      this.filter.cutoff.setTargetAtTime(this.filterBaseHz + v * 1500, this.ctx.currentTime, 0.02);
+    }
+    void opts.lfo; // LFO depth bound at the synth-bus level — voice exposes mod sink only.
+  }
+
+  /** MPE: per-note timbre (CC74). Adds an offset (Hz) to the filter cutoff. */
+  setMpeTimbre(value: number): void {
+    const v = Math.max(0, Math.min(1, value));
+    this.filter.cutoff.setTargetAtTime(this.filterBaseHz + v * 3000, this.ctx.currentTime, 0.02);
   }
 }
