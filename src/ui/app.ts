@@ -4,6 +4,7 @@ import { presetBank } from '../data/preset-bank';
 import { loadAllUserPresets } from '../data/preset-storage';
 import { createPanel } from './panel';
 import { createKeyboard } from './keyboard';
+import { createMidiPanel } from './components/midi-panel';
 import { currentPreset, loadPreset } from '../state/store';
 
 let synth: Synth | null = null;
@@ -33,6 +34,12 @@ function bindKeyboard(shell: HTMLElement): void {
   const s = ensureSynth();
   const kb = createKeyboard(s);
   shell.appendChild(kb.element);
+}
+
+function bindMidi(shell: HTMLElement): void {
+  const s = ensureSynth();
+  const panel = createMidiPanel(s);
+  shell.appendChild(panel.element);
 }
 
 export function bootApp(root: HTMLElement): void {
@@ -73,6 +80,7 @@ export function bootApp(root: HTMLElement): void {
   shell.appendChild(header);
   shell.appendChild(createPanel());
   bindKeyboard(shell);
+  bindMidi(shell);
 
   const footer = document.createElement('footer');
   footer.className = 'app-footer';
