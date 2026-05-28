@@ -74,6 +74,37 @@ Safari ≤16 has no Web MIDI — the panel will display "browser unsupported" an
 3. Un-latch **REC** and press **PLAY**.
 4. **STEP** advances one event at a time; **SYNC_EXT** is the hook for external MIDI clock (`Sequencer.externalTick()`).
 
+## Demos
+
+The **DEMOS** button (next to `?` in the header) opens a player with 8 pre-recorded sequences that drive the live engine through `DemoEvent` arrays — **no audio files, no samples**. Pressing PLAY makes the knobs and switches animate in sync with the audio: the educational point is that you *see* the synthesis happen.
+
+| #     | Title                          | Category   | Preset | Duration |
+| ----- | ------------------------------ | ---------- | ------ | -------- |
+| A1    | Arena Sync Lead                | in-style   | 8      | 20 s     |
+| A2    | Neon Drive                     | in-style   | 2 + 54 | 21 s     |
+| A3    | Cinematic Sweep                | in-style   | 0      | 30 s     |
+| A4    | Funk Bass Workout              | in-style   | 54     | 20 s     |
+| B1    | Bach — Invention no. 1         | classical  | 49     | 30 s     |
+| B2    | Mozart — Eine kleine Nachtmusik | classical | 1      | 20 s     |
+| C1    | Filter Workout                 | technical  | 0      | 25 s     |
+| C2    | 100 Presets Tour               | technical  | 0..99  | 3 min 20 s |
+
+### Legal & credits
+
+All in-style demos are **original compositions**, freshly written in the mood of an era but not derived from any copyrighted melody. Classical demos use public-domain scores only:
+
+- **J. S. Bach** († 1750) — BWV 772, *Invention no. 1 in C major*.
+- **W. A. Mozart** († 1791) — K. 525, *Eine kleine Nachtmusik*.
+
+Bach demo presented on the harpsichord patch in homage to **Wendy Carlos**, *Switched-On Bach* (1968).
+
+### Playback controls
+
+- Click PLAY on any row to start.
+- Space toggles play/pause; Esc stops. `←` / `→` jump between presets on the long tour.
+- Any click on a panel knob/switch or any keyboard key automatically pauses the demo and surfaces a toast. Toggle **Lock controls during demo** to opt out.
+- See [`docs/DEMOS.md`](./docs/DEMOS.md) for the event format and how to add a new demo.
+
 ## The 100 factory presets
 
 Programmed from 17 archetype builders (see [`src/data/factory-presets.ts`](./src/data/factory-presets.ts)). Each preset respects the sonic DNA the name implies:
