@@ -105,6 +105,18 @@ Bach demo presented on the harpsichord patch in homage to **Wendy Carlos**, *Swi
 - Any click on a panel knob/switch or any keyboard key automatically pauses the demo and surfaces a toast. Toggle **Lock controls during demo** to opt out.
 - See [`docs/DEMOS.md`](./docs/DEMOS.md) for the event format and how to add a new demo.
 
+## Cassette Audio Transfer (Easter Egg)
+
+The cassette panel has a **FORMAT** switch — `[TEXT]` (the standard `.mm-bank` JSON file) or `[AUDIO]` (Bell 202 2-FSK modem). In AUDIO mode you can also choose the *scope* (single preset / all 100) and the *source* (a `.wav` download / live mic-and-speaker), then click REC: the speakers will whirr like a 1980s dial-up handshake, the alphanumeric display will narrate `SYNC… → SAVING → OK`, and the bytes are on their way.
+
+To receive, click PLAY in AUDIO mode and either pick a `.wav` file or hold a phone (or another browser) playing the audio close to the mic. The display walks `SYNC… → LOADING → CHECK… → OK` and the preset lands in the bank.
+
+> **This is intentionally slow and fragile. It's an homage, not a feature.**
+>
+> A single preset takes ≈ 12 seconds of audio to transmit. The 100-preset bank takes ≈ 3 minutes (gzipped). In a quiet room with a phone at 30 cm we see ≥ 95 % decode success; in a noisier environment expect `BAD TAPE` and the chance to try again — exactly as the 1982 Memorymoog manual warned you.
+
+See [`docs/CASSETTE.md`](./docs/CASSETTE.md) for the protocol spec, design choices (FSK 1982 vs ggwave 2021 vs the Bell 202 we landed on) and the cultural notes that justify why a feature this fragile is the one we're proudest of.
+
 ## The 100 factory presets
 
 Programmed from 17 archetype builders (see [`src/data/factory-presets.ts`](./src/data/factory-presets.ts)). Each preset respects the sonic DNA the name implies:
