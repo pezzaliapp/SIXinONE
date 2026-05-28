@@ -5,6 +5,8 @@ import { loadAllUserPresets } from '../data/preset-storage';
 import { createPanel } from './panel';
 import { createKeyboard } from './keyboard';
 import { createMidiPanel } from './components/midi-panel';
+import { createSequencerPanel } from './components/sequencer-panel';
+import { Sequencer } from '../sequencer/sequencer';
 import { currentPreset, loadPreset } from '../state/store';
 
 let synth: Synth | null = null;
@@ -40,6 +42,13 @@ function bindMidi(shell: HTMLElement): void {
   const s = ensureSynth();
   const panel = createMidiPanel(s);
   shell.appendChild(panel.element);
+}
+
+let sequencer: Sequencer | null = null;
+function bindSequencer(shell: HTMLElement): void {
+  const s = ensureSynth();
+  sequencer = new Sequencer(s);
+  shell.appendChild(createSequencerPanel(sequencer).element);
 }
 
 export function bootApp(root: HTMLElement): void {
@@ -81,6 +90,7 @@ export function bootApp(root: HTMLElement): void {
   shell.appendChild(createPanel());
   bindKeyboard(shell);
   bindMidi(shell);
+  bindSequencer(shell);
 
   const footer = document.createElement('footer');
   footer.className = 'app-footer';

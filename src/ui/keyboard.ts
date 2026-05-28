@@ -14,6 +14,7 @@
 import type { Synth } from '../audio/synth';
 import { MM_HIGHEST_KEY, MM_LOWEST_KEY, midiNoteName } from '../audio/midi-utils';
 import { voiceActivity } from '../state/store';
+import { publishNote } from '../state/note-bus';
 
 const BLACK_INDEXES = new Set([1, 3, 6, 8, 10]);
 
@@ -169,6 +170,7 @@ export function createKeyboard(synth: Synth): KeyboardHandle {
     synth.noteOn(midi);
     keyByMidi.get(midi)?.setActive(true);
     voiceActivity.set(synth.voiceActivity());
+    publishNote(midi, 100);
   }
 
   function noteOff(midi: number): void {

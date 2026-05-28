@@ -708,6 +708,74 @@ body {
   cursor: not-allowed;
 }
 
+/* ── Sequencer panel ────────────────────────────────────── */
+
+.sequencer-panel {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: linear-gradient(180deg, #100e0b 0%, #060509 100%);
+  border: 1px solid #1d1a13;
+  border-radius: 6px;
+}
+
+.seq-slots {
+  display: flex;
+  gap: 0.25rem;
+  margin: 0.4rem 0;
+  flex-wrap: wrap;
+}
+
+.seq-slot {
+  background: var(--switch-bg);
+  border: 1px solid #2c281e;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 1rem;
+  width: 2rem;
+  height: 2rem;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.seq-slot[data-active='true'] {
+  background: var(--accent);
+  color: #0a0404;
+  border-color: var(--accent);
+}
+
+.seq-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.seq-bpm {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.seq-bpm input {
+  background: #0d0b07;
+  border: 1px solid #2a261c;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 1rem;
+  width: 4rem;
+  padding: 0.2rem 0.3rem;
+  border-radius: 3px;
+}
+
+.seq-count {
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin-left: auto;
+}
+
 /* ── Footer ─────────────────────────────────────────────── */
 
 .app-footer {
