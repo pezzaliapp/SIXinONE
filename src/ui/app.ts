@@ -9,6 +9,7 @@ import { createSequencerPanel } from './components/sequencer-panel';
 import { createFxRack } from './components/fx-rack';
 import { createCassette } from './components/cassette';
 import { createArpPanel } from './components/arp-panel';
+import { createTransportPanel } from './components/transport-panel';
 import { Sequencer } from '../sequencer/sequencer';
 import { createHelpButton } from './components/help-panel';
 import { currentPreset, loadPreset } from '../state/store';
@@ -69,6 +70,10 @@ function bindArp(shell: HTMLElement): void {
   shell.appendChild(createArpPanel(s).element);
 }
 
+function bindTransport(shell: HTMLElement): void {
+  shell.appendChild(createTransportPanel().element);
+}
+
 export function bootApp(root: HTMLElement): void {
   root.innerHTML = '';
 
@@ -110,6 +115,7 @@ export function bootApp(root: HTMLElement): void {
   shell.appendChild(createPanel());
   bindKeyboard(shell);
   bindMidi(shell);
+  bindTransport(shell);
   bindArp(shell);
   bindFxRack(shell);
   bindSequencer(shell);

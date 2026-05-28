@@ -955,6 +955,52 @@ body {
   align-self: center;
 }
 
+/* ── Transport ──────────────────────────────────────────── */
+
+.transport-panel {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: linear-gradient(180deg, #110f0c 0%, #07060a 100%);
+  border: 1px solid #1d1a13;
+  border-radius: 6px;
+}
+
+.transport-panel .group-title {
+  margin: 0 0 0.5rem 0;
+}
+
+.transport-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.transport-field {
+  display: inline-flex;
+  flex-direction: column;
+  font-size: 0.6rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  gap: 0.2rem;
+}
+
+.transport-bpm {
+  background: #0d0b07;
+  border: 1px solid #2a261c;
+  color: var(--ink);
+  font-family: var(--font-display);
+  padding: 0.3rem 0.4rem;
+  border-radius: 3px;
+  width: 5rem;
+}
+
+.transport-tap[data-active='true'] .panel-switch-led {
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
+
 /* ── Arpeggiator ────────────────────────────────────────── */
 
 .arp-panel {

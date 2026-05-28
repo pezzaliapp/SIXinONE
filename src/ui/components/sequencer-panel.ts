@@ -4,7 +4,7 @@
  */
 
 import type { Sequencer, SequencerMode, ClockSubdiv } from '../../sequencer/sequencer';
-import { midiBridge } from '../../midi/midi-bridge';
+import { transportClock } from '../../sequencer/transport-clock';
 
 export interface SequencerPanelHandle {
   element: HTMLElement;
@@ -60,7 +60,7 @@ export function createSequencerPanel(seq: Sequencer): SequencerPanelHandle {
   clearBtn.innerHTML = '<span class="panel-switch-label">CLR</span>';
   clearBtn.addEventListener('click', () => seq.clear());
 
-  // BPM
+  // BPM — two-way bound to the shared transport clock.
   const bpmWrap = document.createElement('label');
   bpmWrap.className = 'seq-bpm';
   bpmWrap.textContent = 'BPM ';
@@ -68,9 +68,14 @@ export function createSequencerPanel(seq: Sequencer): SequencerPanelHandle {
   bpmInput.type = 'number';
   bpmInput.min = '30';
   bpmInput.max = '300';
-  bpmInput.value = String(seq.getBpm());
-  bpmInput.addEventListener('input', () => seq.setBpm(parseInt(bpmInput.value, 10) || 120));
+  bpmInput.value = String(transportClock.getBpm());
+  bpmInput.addEventListener('input', () => transportClock.setBpm(parseInt(bpmInput.value, 10) || 120));
   bpmWrap.appendChild(bpmInput);
+  transportClock.subscribe({
+    onBpmChange: (bpm) => {
+      if (document.activeElement !== bpmInput) bpmInput.value = String(Math.round(bpm));
+    },
+  });
 
   // Mode
   const modeSelect = document.createElement('select');
@@ -102,23 +107,10 @@ export function createSequencerPanel(seq: Sequencer): SequencerPanelHandle {
     seq.setClockSubdiv(parseInt(subdivSelect.value, 10) as ClockSubdiv),
   );
 
-  // MIDI Clock output toggle — when on, we wire the seq's internal clock
-  // out to the MIDI bridge so DAWs can slave to SIXinONE.
-  const clockOutBtn = document.createElement('button');
-  clockOutBtn.type = 'button';
-  clockOutBtn.className = 'panel-switch sm';
-  clockOutBtn.innerHTML = '<span class="panel-switch-led"></span><span class="panel-switch-label">CLK OUT</span>';
-  let clockOutActive = false;
-  clockOutBtn.addEventListener('click', () => {
-    clockOutActive = !clockOutActive;
-    clockOutBtn.dataset.active = String(clockOutActive);
-    seq.setClockOutput(clockOutActive ? (() => midiBridge.sendClock()) : null);
-  });
-
   const stepCount = document.createElement('span');
   stepCount.className = 'seq-count';
 
-  controls.append(recBtn, playBtn, stepBtn, clearBtn, modeSelect, subdivSelect, clockOutBtn, bpmWrap, stepCount);
+  controls.append(recBtn, playBtn, stepBtn, clearBtn, modeSelect, subdivSelect, bpmWrap, stepCount);
   root.appendChild(controls);
 
   function render(): void {
