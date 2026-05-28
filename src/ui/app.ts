@@ -1,5 +1,7 @@
 import { TEST_PRESETS } from '../data/test-presets';
 import { Synth } from '../audio/synth';
+import { presetBank } from '../data/preset-bank';
+import { loadAllUserPresets } from '../data/preset-storage';
 import { createPanel } from './panel';
 import { createKeyboard } from './keyboard';
 import { currentPreset, loadPreset } from '../state/store';
@@ -35,6 +37,11 @@ function bindKeyboard(shell: HTMLElement): void {
 
 export function bootApp(root: HTMLElement): void {
   root.innerHTML = '';
+
+  // Pull any user-saved presets from IndexedDB so they shadow the factory bank.
+  void loadAllUserPresets().then((rows) => {
+    presetBank.loadOverrides(rows);
+  });
   const shell = document.createElement('div');
   shell.className = 'app-shell';
 

@@ -415,6 +415,114 @@ body {
   color: #c2ffd2;
 }
 
+/* ── Keypad ─────────────────────────────────────────────── */
+
+.keypad {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  background: #0a0805;
+  border: 1px solid #1a1610;
+  border-radius: 4px;
+}
+
+.keypad-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.25rem;
+}
+
+.keypad-grid .keypad-key:nth-child(10) {
+  grid-column: 2 / 3;
+}
+
+.keypad-key {
+  background: linear-gradient(180deg, #1c1916 0%, #0d0b07 100%);
+  border: 1px solid #2a261c;
+  border-radius: 3px;
+  color: var(--serigraph);
+  font-family: var(--font-display);
+  font-size: 1.3rem;
+  padding: 0.45rem 0.6rem;
+  cursor: pointer;
+  transition: background 60ms ease, transform 60ms ease;
+}
+
+.keypad-key:hover {
+  background: linear-gradient(180deg, #2a251d 0%, #18140e 100%);
+}
+
+.keypad-key:active {
+  transform: translateY(1px);
+  background: var(--accent);
+  color: #100404;
+}
+
+.keypad-actions {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.keypad-enter,
+.keypad-record {
+  flex: 1;
+  background: linear-gradient(180deg, #1c1916 0%, #0d0b07 100%);
+  border: 1px solid #2a261c;
+  border-radius: 3px;
+  color: var(--serigraph);
+  font-family: var(--font-label);
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  padding: 0.5rem;
+  cursor: pointer;
+  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  transition: background 80ms ease;
+}
+
+.keypad-enter:hover,
+.keypad-record:hover {
+  background: linear-gradient(180deg, #2a251d 0%, #18140e 100%);
+}
+
+.keypad-record[data-active='true'] {
+  background: var(--accent);
+  color: #100404;
+  border-color: var(--accent);
+}
+
+.keypad-record[data-active='true'] .panel-switch-led {
+  background: var(--accent-led);
+  box-shadow: 0 0 6px var(--led-glow);
+}
+
+.keypad-banks {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.25rem;
+}
+
+.bank-btn {
+  background: #0d0b07;
+  border: 1px solid #2a261c;
+  border-radius: 3px;
+  color: var(--serigraph);
+  font-family: var(--font-display);
+  font-size: 1rem;
+  padding: 0.35rem 0.4rem;
+  cursor: pointer;
+}
+
+.bank-btn[data-active='true'] {
+  background: var(--accent);
+  color: #100404;
+  border-color: var(--accent);
+}
+
 /* ── Keyboard ───────────────────────────────────────────── */
 
 .keyboard-section {

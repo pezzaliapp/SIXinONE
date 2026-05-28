@@ -18,6 +18,7 @@ import { currentPreset, flashEdit, mutate, runAutoTune } from '../state/store';
 import { createKnob } from './components/knob';
 import { createRadioGroup, createSwitch } from './components/switch';
 import { createAlphanumericDisplay, createProgramDisplay } from './components/display';
+import { createKeypad } from './components/keypad';
 
 type PresetMutator = (draft: Preset) => void;
 
@@ -138,13 +139,14 @@ function buildLeftSection(): HTMLElement {
   });
   bendMod.append(pitchBend.element, modAmt.element);
 
-  // System controller — keypad arrives in Step 10; for now just the displays
   const systemCtrl = group('System Controller');
   const displays = document.createElement('div');
   displays.className = 'display-stack';
   displays.appendChild(createProgramDisplay());
   displays.appendChild(createAlphanumericDisplay());
   systemCtrl.appendChild(displays);
+  const keypad = createKeypad();
+  systemCtrl.appendChild(keypad.element);
 
   wrap.append(performance, bendMod, systemCtrl);
   return wrap;
