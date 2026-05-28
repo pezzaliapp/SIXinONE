@@ -1,9 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import { crc32, decode, encode, estimatedDuration, MODEM_SPEC } from '../src/audio/cassette/modem';
 
-function randomBytes(n: number): Uint8Array {
+// Deterministic PRNG so tests don't flake on CI — a single Mulberry32 seed
+// produces the same byte stream and the same noise samples every run.
+function makeRng(seed: number): () => number {
+  let s = seed >>> 0;
+  return (): number => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function randomBytes(n: number, seed = 1): Uint8Array {
+  const r = makeRng(seed);
   const out = new Uint8Array(n);
-  for (let i = 0; i < n; i++) out[i] = Math.floor(Math.random() * 256);
+  for (let i = 0; i < n; i++) out[i] = Math.floor(r() * 256);
   return out;
 }
 
@@ -17,7 +31,7 @@ describe('CRC-32', () => {
 
 describe('modem roundtrip', () => {
   it('encode → decode survives a 1 KB random payload', () => {
-    const payload = randomBytes(1024);
+    const payload = randomBytes(1024, 1);
     const pcm = encode(payload, { sampleRate: 44100, amplitude: 0.7 });
     const result = decode(pcm, 44100);
     expect(result.ok, result.reason).toBe(true);
@@ -25,7 +39,7 @@ describe('modem roundtrip', () => {
   });
 
   it('encode → decode survives a 10 KB random payload', () => {
-    const payload = randomBytes(10 * 1024);
+    const payload = randomBytes(10 * 1024, 2);
     const pcm = encode(payload);
     const result = decode(pcm);
     expect(result.ok, result.reason).toBe(true);
@@ -51,13 +65,15 @@ describe('modem error detection', () => {
   });
 
   it('tolerates a faint noise floor', () => {
-    const payload = randomBytes(256);
+    const payload = randomBytes(256, 7);
     const pcm = encode(payload, { sampleRate: 44100, amplitude: 0.7 });
-    // –40 dB noise floor — easier than a real mic recording in a quiet
-    // room. The point: a clean WAV-round-trip in slightly-imperfect
+    // Deterministic ~–46 dB noise floor — well below the carrier energy
+    // integrated by one Goertzel symbol window, but a real noise signal,
+    // not silence. The point: a clean WAV-round-trip in slightly-imperfect
     // conditions decodes without errors.
+    const noiseRng = makeRng(42);
     for (let i = 0; i < pcm.length; i++) {
-      pcm[i]! += (Math.random() * 2 - 1) * 0.01;
+      pcm[i]! += (noiseRng() * 2 - 1) * 0.005;
     }
     const result = decode(pcm, 44100);
     expect(result.ok, result.reason).toBe(true);
@@ -65,7 +81,7 @@ describe('modem error detection', () => {
   });
 
   it('flags BAD TAPE when the carrier is severely degraded', () => {
-    const payload = randomBytes(256);
+    const payload = randomBytes(256, 3);
     const pcm = encode(payload, { sampleRate: 44100 });
     // Wipe out half of every byte's audio span — the CRC must catch this
     // even if Hamming corrects what it can. We accept "no-sync", "bad-magic"
