@@ -1558,3 +1558,78 @@ body {
   color: var(--muted);
   margin-top: 0.3rem;
 }
+
+/* ── Cassette audio mode ───────────────────────────────── */
+
+.cassette-format-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.cassette-row-label {
+  font-size: 0.6rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  width: 4rem;
+}
+
+.cassette-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.65rem;
+  color: var(--ink);
+}
+
+.cassette-audio-options {
+  padding: 0.5rem 0.5rem 0.6rem;
+  margin-bottom: 0.4rem;
+  background: rgba(135, 255, 174, 0.03);
+  border: 1px dashed #2a261c;
+  border-radius: 4px;
+}
+
+.cassette-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.4rem 0;
+}
+
+.cassette-progress {
+  flex: 1;
+  height: 0.5rem;
+  background: #0d0b07;
+  border: 1px solid #2a261c;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.cassette-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #87ffae 0%, #ffd47a 100%);
+  transition: width 0.1s linear;
+}
+
+.cassette-progress-text {
+  font-size: 0.6rem;
+  font-family: var(--font-label);
+  color: var(--muted);
+  min-width: 16rem;
+  text-align: right;
+}
+
+.cassette-waveform {
+  display: block;
+  width: 100%;
+  height: 30px;
+  background: #06060a;
+  border: 1px solid #1d1a13;
+  border-radius: 3px;
+  margin-top: 0.2rem;
+}
