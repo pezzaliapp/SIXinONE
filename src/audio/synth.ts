@@ -14,6 +14,7 @@ import type { Preset, KbMode } from '../data/preset';
 import { getAudioContext, getMasterBus, resumeAudio } from './context';
 import { Voice } from './voice';
 import { VoiceAllocator } from './voice-allocator';
+import { registerMoogLadder } from './filter';
 
 type PolyMode = 'POLY1' | 'POLY2' | 'POLY3' | 'POLY4';
 
@@ -37,6 +38,11 @@ export class Synth {
   /** Must be called from a user gesture (click, keypress) the first time. */
   async start(): Promise<void> {
     await resumeAudio();
+    try {
+      await registerMoogLadder(getAudioContext());
+    } catch (err) {
+      console.warn('Moog ladder worklet unavailable; using BiquadFilter fallback', err);
+    }
   }
 
   setPreset(p: Preset): void {

@@ -26,6 +26,7 @@ import {
 import { centsToRatio, midiToHz, semitonesToRatio } from './midi-utils';
 import { getPinkNoiseBuffer } from './noise';
 import { applyAttackDecay, applyRelease, filterTimes, vcaTimes } from './envelope';
+import { createMoogFilter, type MoogFilter } from './filter';
 
 interface OscBank {
   nodes: OscillatorNode[];
@@ -104,7 +105,7 @@ export class Voice {
   private readonly osc3Gain: GainNode;
   private readonly noiseGain: GainNode;
 
-  private readonly filter: BiquadFilterNode;
+  private readonly filter: MoogFilter;
   private readonly vca: GainNode;
 
   private readonly filterBaseHz: number;
@@ -133,9 +134,8 @@ export class Voice {
     this.noiseGain.gain.value = mixerLevelLinear(preset.mixer.noise) * 0.25;
 
     // Filter + VCA chain.
-    this.filter = ctx.createBiquadFilter();
-    this.filter.type = 'lowpass';
-    this.filter.Q.value = this.emphasisToQ(preset.filter.emphasis);
+    this.filter = createMoogFilter(ctx);
+    this.filter.setEmphasis(preset.filter.emphasis);
     const baseCutoff = filterCutoffHz(preset.filter.cutoff);
     // KB-track shifts cutoff with note. coeff of 1 = full tracking (1 semi/key).
     const kbShift = (midiNote - 69) * preset.filter.kbTrack;
@@ -146,16 +146,16 @@ export class Voice {
       ctx.sampleRate * 0.45,
       this.filterBaseHz * semitonesToRatio(contourOctaves * 12),
     );
-    this.filter.frequency.value = this.filterBaseHz;
+    this.filter.cutoff.value = this.filterBaseHz;
 
     this.vca = ctx.createGain();
     this.vca.gain.value = 0;
 
-    this.osc1Gain.connect(this.filter);
-    this.osc2Gain.connect(this.filter);
-    this.osc3Gain.connect(this.filter);
-    this.noiseGain.connect(this.filter);
-    this.filter.connect(this.vca);
+    this.osc1Gain.connect(this.filter.node);
+    this.osc2Gain.connect(this.filter.node);
+    this.osc3Gain.connect(this.filter.node);
+    this.noiseGain.connect(this.filter.node);
+    this.filter.node.connect(this.vca);
     this.vca.connect(dest);
 
     // Build oscillator banks for each layer.
@@ -184,12 +184,6 @@ export class Voice {
     this.noiseSrc.start(startTime);
   }
 
-  private emphasisToQ(emphasis0to10: number): number {
-    // 0–10 → 0.5–20. The original self-oscillates at ~7, so above 7 we ramp Q fast.
-    if (emphasis0to10 <= 7) return 0.5 + emphasis0to10 * 1.0;
-    return 7.5 + (emphasis0to10 - 7) * 4;
-  }
-
   private computeOsc1Hz(noteHz: number, o: Osc1State): number {
     return noteHz * semitonesToRatio(octaveSemitones(o.octave));
   }
@@ -211,7 +205,7 @@ export class Voice {
     const peak = volumeLinear(this.preset.programmableVolume) * Math.max(0.25, velocity);
     applyAttackDecay(this.vca.gain, startTime, 0, peak, vcaEnv);
     applyAttackDecay(
-      this.filter.frequency,
+      this.filter.cutoff,
       startTime,
       this.filterBaseHz,
       this.filterPeakHz,
@@ -225,7 +219,7 @@ export class Voice {
     const vcaEnv = vcaTimes(this.preset.vca);
     const filtEnv = filterTimes(this.preset.filter);
     const t1 = applyRelease(this.vca.gain, at, 0, vcaEnv.release);
-    const t2 = applyRelease(this.filter.frequency, at, this.filterBaseHz, filtEnv.release);
+    const t2 = applyRelease(this.filter.cutoff, at, this.filterBaseHz, filtEnv.release);
     this.endTime = Math.max(t1, t2) + 0.05;
     this.scheduleStop(this.endTime);
     return this.endTime;
