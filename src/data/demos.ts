@@ -80,12 +80,16 @@ import { arenaSyncLead } from './demos/style-arena';
 import { neonDrive } from './demos/style-neon';
 import { cinematicSweep } from './demos/style-cinematic';
 import { funkBassWorkout } from './demos/style-funk';
+import { bachInvention } from './demos/classical-bach';
+import { mozartEineKleine } from './demos/classical-mozart';
 
 export const DEMOS: Demo[] = [
   arenaSyncLead,
   neonDrive,
   cinematicSweep,
   funkBassWorkout,
+  bachInvention,
+  mozartEineKleine,
 ];
 
 /** Lookup helper used by the per-preset PLAY button. */
