@@ -955,6 +955,97 @@ body {
   align-self: center;
 }
 
+/* ── Cassette I/O ───────────────────────────────────────── */
+
+.cassette-rack {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: linear-gradient(180deg, #110f0c 0%, #07060a 100%);
+  border: 1px solid #1d1a13;
+  border-radius: 6px;
+}
+
+.cassette-rack .group-title {
+  margin: 0 0 0.4rem 0;
+}
+
+.cassette-body {
+  display: grid;
+  grid-template-columns: minmax(0, 280px) 1fr;
+  gap: 0.8rem;
+  align-items: start;
+}
+
+.cassette-svg {
+  width: 100%;
+  max-width: 280px;
+  height: auto;
+}
+
+@keyframes cassetteSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.cassette-reel .cassette-spokes {
+  transform-origin: 0 0;
+  transition: transform 0.2s linear;
+}
+
+.cassette-reel.spinning .cassette-spokes {
+  animation: cassetteSpin 0.6s linear infinite;
+}
+
+.cassette-side {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.cassette-display {
+  background: #0a0907;
+  border: 1px solid #2a261c;
+  color: #87ffae;
+  font-family: var(--font-display);
+  text-align: center;
+  letter-spacing: 0.2em;
+  padding: 0.4rem;
+  border-radius: 4px;
+  font-size: 1rem;
+  min-height: 1.8em;
+}
+
+.cassette-buttons {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.cassette-merge {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.65rem;
+  color: var(--muted);
+}
+
+.cassette-history {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.6rem;
+  color: var(--muted);
+  font-family: var(--font-display);
+  letter-spacing: 0.08em;
+  margin-top: 0.3rem;
+}
+
+.cassette-history-item {
+  border-left: 2px solid #2a261c;
+  padding-left: 0.4rem;
+}
+
 /* ── Sequencer panel ────────────────────────────────────── */
 
 .sequencer-panel {
