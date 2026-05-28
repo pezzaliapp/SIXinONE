@@ -48,6 +48,9 @@ function strings(n: number, variant: number): Preset {
   };
   p.vca = { attack: 5 + (v % 3) * 0.4, decay: 4, sustain: 9, release: 6 };
   p.contour.keyboardFollow = true;
+  // String pads: shimmery chorus + a generous plate reverb.
+  p.fx.chorus = { enabled: true, rate: 0.5, depth: 0.4, feedback: 0.15, mix: 0.5 };
+  p.fx.reverb = { enabled: true, size: 2, damping: 0.4, mix: 0.3 };
   return p;
 }
 
@@ -73,6 +76,8 @@ function brass(n: number, variant: number): Preset {
   };
   p.vca = { attack: 3, decay: 4, sustain: 8, release: 3 };
   p.contour.keyboardFollow = true;
+  // Brass: just a touch of medium plate to put it in a room.
+  p.fx.reverb = { enabled: true, size: 1, damping: 0.5, mix: 0.2 };
   return p;
 }
 
@@ -101,6 +106,16 @@ function sync(n: number, name: string, variant: number): Preset {
     release: 4,
   };
   p.vca = { attack: 2, decay: 4, sustain: 8, release: 3 };
+  // Sync leads earn the classic slap-back delay.
+  p.fx.delay = {
+    enabled: true,
+    time: 0.35,
+    feedback: 0.35,
+    tone: 4000,
+    mix: 0.25,
+    pingPong: false,
+    syncBpm: false,
+  };
   return p;
 }
 
@@ -222,6 +237,8 @@ function bells(n: number): Preset {
   p.mixer = { osc1: 7, osc2: 5, osc3: 4, noise: 0 };
   p.filter = { kbTrack: 1, cutoff: 8, emphasis: 0, contourAmount: 0, attack: 0, decay: 0, sustain: 10, release: 0 };
   p.vca = { attack: 0.2, decay: 6, sustain: 0, release: 6 };
+  // Bells/Vibes/Celeste live in a long plate; chorus would muddy them.
+  p.fx.reverb = { enabled: true, size: 1, damping: 0.45, mix: 0.4 };
   return p;
 }
 
@@ -245,6 +262,7 @@ function harp(n: number): Preset {
   p.mixer = { osc1: 6, osc2: 5, osc3: 3, noise: 0 };
   p.filter = { kbTrack: 1, cutoff: 6.5, emphasis: 1, contourAmount: 5, attack: 0.2, decay: 4, sustain: 0, release: 3 };
   p.vca = { attack: 0.1, decay: 4, sustain: 0, release: 3 };
+  p.fx.reverb = { enabled: true, size: 1, damping: 0.5, mix: 0.4 };
   return p;
 }
 
