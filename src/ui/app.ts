@@ -8,6 +8,7 @@ import { createMidiPanel } from './components/midi-panel';
 import { createSequencerPanel } from './components/sequencer-panel';
 import { createFxRack } from './components/fx-rack';
 import { createCassette } from './components/cassette';
+import { createArpPanel } from './components/arp-panel';
 import { Sequencer } from '../sequencer/sequencer';
 import { createHelpButton } from './components/help-panel';
 import { currentPreset, loadPreset } from '../state/store';
@@ -63,6 +64,11 @@ function bindCassette(shell: HTMLElement): void {
   shell.appendChild(createCassette().element);
 }
 
+function bindArp(shell: HTMLElement): void {
+  const s = ensureSynth();
+  shell.appendChild(createArpPanel(s).element);
+}
+
 export function bootApp(root: HTMLElement): void {
   root.innerHTML = '';
 
@@ -104,6 +110,7 @@ export function bootApp(root: HTMLElement): void {
   shell.appendChild(createPanel());
   bindKeyboard(shell);
   bindMidi(shell);
+  bindArp(shell);
   bindFxRack(shell);
   bindSequencer(shell);
   bindCassette(shell);

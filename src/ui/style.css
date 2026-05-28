@@ -955,6 +955,59 @@ body {
   align-self: center;
 }
 
+/* ── Arpeggiator ────────────────────────────────────────── */
+
+.arp-panel {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: linear-gradient(180deg, #100e0b 0%, #06060a 100%);
+  border: 1px solid #1d1a13;
+  border-radius: 6px;
+}
+
+.arp-panel .group-title {
+  margin: 0 0 0.5rem 0;
+}
+
+.arp-pattern-row {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.arp-pattern-btn {
+  min-width: 3.2rem;
+  justify-content: center;
+}
+
+.arp-settings {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.arp-field {
+  display: inline-flex;
+  flex-direction: column;
+  font-size: 0.6rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  gap: 0.2rem;
+}
+
+.arp-bpm {
+  background: #0d0b07;
+  border: 1px solid #2a261c;
+  color: var(--ink);
+  font-family: var(--font-display);
+  padding: 0.3rem 0.4rem;
+  border-radius: 3px;
+  width: 5rem;
+}
+
 /* ── Cassette I/O ───────────────────────────────────────── */
 
 .cassette-rack {

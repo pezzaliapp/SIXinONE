@@ -22,6 +22,7 @@ import { registerPwmOscillator } from './pwm-oscillator';
 import { GlobalLfo } from './lfo';
 import { FxBus, type FxBusState } from './fx/fx-bus';
 import type { PresetFx } from '../data/preset';
+import { Arpeggiator, patternFromPresetValue } from '../sequencer/arpeggiator';
 
 type PolyMode = 'POLY1' | 'POLY2' | 'POLY3' | 'POLY4';
 
@@ -55,10 +56,34 @@ export class Synth {
   private fxBus: FxBus | null = null;
   private voiceBus: GainNode | null = null;
   private controllerListeners = new Set<ControllerStateListener>();
+  private arpeggiator: Arpeggiator;
 
   constructor(initialPreset: Preset) {
     this.preset = initialPreset;
+    // Arp drives voice allocation directly — bypassing noteOn so we don't recurse.
+    this.arpeggiator = new Arpeggiator({
+      noteOn: (n, v) => this.playVoiceDirect(n, v),
+      noteOff: (n) => this.allocator.releaseNote(n, getAudioContext().currentTime),
+    });
+    this.applyArpFromPreset(initialPreset);
     this.startReaper();
+  }
+
+  /** Apply preset-driven arp settings (pattern + hold). Rate/range live on the panel only. */
+  private applyArpFromPreset(p: Preset): void {
+    const pattern = patternFromPresetValue(p.arpeggiator);
+    if (pattern === null) {
+      this.arpeggiator.setEnabled(false);
+    } else {
+      this.arpeggiator.setPattern(pattern);
+      this.arpeggiator.setEnabled(true);
+    }
+    this.arpeggiator.setHold(p.hold);
+  }
+
+  /** Public access for the panel UI. */
+  getArpeggiator(): Arpeggiator {
+    return this.arpeggiator;
   }
 
   /** Must be called from a user gesture (click, keypress) the first time. */
@@ -137,6 +162,7 @@ export class Synth {
       this.lfo.setWave(p.lfo.wave);
     }
     if (this.fxBus) this.fxBus.applyState(fxFromPreset(p.fx));
+    this.applyArpFromPreset(p);
     this.updateModDepth();
   }
 
@@ -145,6 +171,32 @@ export class Synth {
   }
 
   noteOn(midiNote: number, velocity = 0.85, mpeChannel?: number): void {
+    // When the arp is active, the keyboard input feeds the held-notes set,
+    // and the arp's clock decides when each voice actually starts.
+    if (this.arpeggiator.isEnabled()) {
+      this.heldNotes.add(midiNote);
+      this.arpeggiator.addHeldNote(midiNote, velocity);
+      return;
+    }
+    this.playVoiceDirect(midiNote, velocity, mpeChannel);
+  }
+
+  noteOff(midiNote: number): void {
+    const ctx = getAudioContext();
+    this.heldNotes.delete(midiNote);
+    if (this.arpeggiator.isEnabled()) {
+      this.arpeggiator.removeHeldNote(midiNote);
+      return;
+    }
+    if (this.sustainOn) {
+      this.sustainedNotes.add(midiNote);
+      return;
+    }
+    this.allocator.releaseNote(midiNote, ctx.currentTime);
+  }
+
+  /** Internal: actually create a voice. Bypasses the arp (used by the arp itself). */
+  private playVoiceDirect(midiNote: number, velocity: number, mpeChannel?: number): void {
     const ctx = getAudioContext();
     const dest = this.ensureBuses();
     if (this.preset.mono) {
@@ -164,21 +216,11 @@ export class Synth {
     });
     if (this.bendSemitones !== 0) voice.setPitchBendSemitones(this.bendSemitones);
     this.allocator.placeVoice(slotIdx, voice, midiNote, ctx.currentTime);
-    this.heldNotes.add(midiNote);
-  }
-
-  noteOff(midiNote: number): void {
-    const ctx = getAudioContext();
-    this.heldNotes.delete(midiNote);
-    if (this.sustainOn) {
-      this.sustainedNotes.add(midiNote);
-      return;
-    }
-    this.allocator.releaseNote(midiNote, ctx.currentTime);
   }
 
   panic(): void {
     const ctx = getAudioContext();
+    this.arpeggiator.flushAllNotes();
     this.allocator.panic(ctx.currentTime);
     this.heldNotes.clear();
     this.sustainedNotes.clear();
