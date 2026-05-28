@@ -122,6 +122,39 @@ export interface ContourFlags {
   release: boolean;
 }
 
+/**
+ * FX rack state — chorus / plate reverb / tape delay. Lives inside the
+ * preset (so each program can store its own FX setup) but the FX rack UI
+ * also offers a "global" toggle that ignores preset values.
+ */
+export interface PresetFxChorus {
+  enabled: boolean;
+  rate: number;
+  depth: number;
+  feedback: number;
+  mix: number;
+}
+export interface PresetFxReverb {
+  enabled: boolean;
+  size: 0 | 1 | 2;
+  damping: number;
+  mix: number;
+}
+export interface PresetFxDelay {
+  enabled: boolean;
+  time: number;
+  feedback: number;
+  tone: number;
+  mix: number;
+  pingPong: boolean;
+  syncBpm: boolean;
+}
+export interface PresetFx {
+  chorus: PresetFxChorus;
+  reverb: PresetFxReverb;
+  delay: PresetFxDelay;
+}
+
 export interface Preset {
   number: number; // 0–99
   name: string;
@@ -161,7 +194,24 @@ export interface Preset {
 
   // Global contour controls (apply to BOTH envelopes)
   contour: ContourFlags;
+
+  // v2 — FX rack (chorus → plate reverb → tape delay)
+  fx: PresetFx;
 }
+
+export const DEFAULT_PRESET_FX: PresetFx = {
+  chorus: { enabled: false, rate: 0.6, depth: 0.5, feedback: 0.2, mix: 0.4 },
+  reverb: { enabled: false, size: 1, damping: 0.5, mix: 0.3 },
+  delay: {
+    enabled: false,
+    time: 0.35,
+    feedback: 0.35,
+    tone: 4000,
+    mix: 0.25,
+    pingPong: false,
+    syncBpm: false,
+  },
+};
 
 export const PRESET_SCHEMA_VERSION = 1;
 
@@ -242,6 +292,7 @@ export function createBlankPreset(number = 0, name = 'INIT'): Preset {
       keyboardFollow: false,
       release: true,
     },
+    fx: JSON.parse(JSON.stringify(DEFAULT_PRESET_FX)) as PresetFx,
   };
 }
 
@@ -273,6 +324,14 @@ export function deserializePreset(data: SerializedPreset | unknown): Preset {
     throw new Error(`Unsupported preset schema version: ${v}`);
   }
   // Future-proofing: merge with blank to ensure missing fields are filled in.
+  // Explicitly merge the FX block so a pre-v2 preset (no `fx`) still works.
   const base = createBlankPreset(preset.number, preset.name);
-  return { ...base, ...preset };
+  const fx = preset.fx
+    ? {
+        chorus: { ...base.fx.chorus, ...preset.fx.chorus },
+        reverb: { ...base.fx.reverb, ...preset.fx.reverb },
+        delay: { ...base.fx.delay, ...preset.fx.delay },
+      }
+    : base.fx;
+  return { ...base, ...preset, fx };
 }

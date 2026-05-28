@@ -20,6 +20,8 @@ import { VoiceAllocator } from './voice-allocator';
 import { registerMoogLadder } from './filter';
 import { registerPwmOscillator } from './pwm-oscillator';
 import { GlobalLfo } from './lfo';
+import { FxBus, type FxBusState } from './fx/fx-bus';
+import type { PresetFx } from '../data/preset';
 
 type PolyMode = 'POLY1' | 'POLY2' | 'POLY3' | 'POLY4';
 
@@ -29,6 +31,15 @@ function asPolyMode(mode: KbMode): PolyMode {
 }
 
 export type ControllerStateListener = (state: { modWheel: number; sustain: boolean; bend: number }) => void;
+
+/** Convert from the preset's `fx` field to the FxBus state shape (1:1). */
+function fxFromPreset(fx: PresetFx): FxBusState {
+  return {
+    chorus: { ...fx.chorus },
+    reverb: { ...fx.reverb },
+    delay: { ...fx.delay },
+  };
+}
 
 export class Synth {
   private preset: Preset;
@@ -41,6 +52,8 @@ export class Synth {
   private reapTimer: number | null = null;
   private lfo: GlobalLfo | null = null;
   private modDepthGain: GainNode | null = null;
+  private fxBus: FxBus | null = null;
+  private voiceBus: GainNode | null = null;
   private controllerListeners = new Set<ControllerStateListener>();
 
   constructor(initialPreset: Preset) {
@@ -62,7 +75,25 @@ export class Synth {
     } catch (err) {
       console.warn('PWM oscillator worklet unavailable; using square fallback', err);
     }
+    this.ensureBuses();
     this.ensureLfo();
+  }
+
+  /**
+   * Insert voiceBus → fxBus → master. Voices connect to voiceBus instead of
+   * directly to the master, so the FX chain can be re-routed dynamically.
+   */
+  private ensureBuses(): GainNode {
+    if (this.voiceBus) return this.voiceBus;
+    const ctx = getAudioContext();
+    const master = getMasterBus();
+    this.voiceBus = ctx.createGain();
+    this.voiceBus.gain.value = 1;
+    this.fxBus = new FxBus(ctx);
+    this.fxBus.applyState(fxFromPreset(this.preset.fx));
+    this.voiceBus.connect(this.fxBus.input);
+    this.fxBus.output.connect(master);
+    return this.voiceBus;
   }
 
   private ensureLfo(): GlobalLfo {
@@ -105,6 +136,7 @@ export class Synth {
       this.lfo.setRate(p.lfo.rate);
       this.lfo.setWave(p.lfo.wave);
     }
+    if (this.fxBus) this.fxBus.applyState(fxFromPreset(p.fx));
     this.updateModDepth();
   }
 
@@ -114,7 +146,7 @@ export class Synth {
 
   noteOn(midiNote: number, velocity = 0.85, mpeChannel?: number): void {
     const ctx = getAudioContext();
-    const dest = getMasterBus();
+    const dest = this.ensureBuses();
     if (this.preset.mono) {
       this.noteOnMono(midiNote, velocity, mpeChannel);
       return;
@@ -225,9 +257,21 @@ export class Synth {
     for (const cb of this.controllerListeners) cb(snapshot);
   }
 
+  /** Returns the live FX state — used by the FX rack UI for two-way binding. */
+  getFxState(): FxBusState | undefined {
+    if (!this.fxBus) return undefined;
+    return this.fxBus.getState();
+  }
+
+  /** Update the FX bus directly (e.g. from the rack UI). Mirrored into preset. */
+  setFxState(state: FxBusState): void {
+    this.preset = { ...this.preset, fx: state };
+    if (this.fxBus) this.fxBus.applyState(state);
+  }
+
   private noteOnMono(midiNote: number, velocity: number, mpeChannel?: number): void {
     const ctx = getAudioContext();
-    const dest = getMasterBus();
+    const dest = this.ensureBuses();
     this.allocator.panic(ctx.currentTime);
     const voice = new Voice(ctx, dest, {
       preset: this.preset,
