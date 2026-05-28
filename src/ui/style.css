@@ -1,0 +1,60 @@
+/* Step 1 baseline. Full panel styling lands with the UI step. */
+:root {
+  --bg: #0a0a0a;
+  --panel: #141414;
+  --ink: #f3efe6;
+  --muted: #8a8378;
+  --accent: #c2412c;
+  --accent-led: #ff5733;
+  --wood: #3a2417;
+  --serigraph: #e9e3d6;
+  --font-display: 'VT323', 'DSEG14 Classic', 'Courier New', monospace;
+  --font-label: 'Inconsolata', 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-label);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+#app {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.boot {
+  text-align: center;
+  padding: 2rem;
+}
+
+.boot h1 {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 6vw, 4rem);
+  letter-spacing: 0.18em;
+  color: var(--accent);
+  margin: 0;
+}
+
+.tagline {
+  margin: 0.5rem 0 1.5rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.85rem;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 0.85rem;
+}

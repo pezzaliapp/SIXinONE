@@ -1,0 +1,40 @@
+{
+  "name": "sixinone",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "SIXinONE — A Tribute to the Moog Memorymoog (1982). Unofficial educational web simulator.",
+  "author": "Alessandro Pezzali <pezzalialessandro@gmail.com> (https://pezzaliapp.it)",
+  "license": "MIT",
+  "homepage": "https://pezzaliapp.github.io/SIXinONE/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pezzaliapp/SIXinONE"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "lint": "eslint . --ext .ts,.tsx,.js",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.0",
+    "@types/webmidi": "^2.1.0",
+    "@typescript-eslint/eslint-plugin": "^8.8.0",
+    "@typescript-eslint/parser": "^8.8.0",
+    "eslint": "^9.12.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.2",
+    "vite": "^5.4.8",
+    "vite-plugin-pwa": "^0.20.5",
+    "vitest": "^2.1.2"
+  },
+  "dependencies": {
+    "idb": "^8.0.0"
+  }
+}
