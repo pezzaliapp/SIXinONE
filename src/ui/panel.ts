@@ -15,8 +15,50 @@
 
 import type { Preset, LfoWave } from '../data/preset';
 import { currentPreset, flashEdit, mutate, runAutoTune } from '../state/store';
-import { createKnob } from './components/knob';
-import { createRadioGroup, createSwitch } from './components/switch';
+import { createKnob, type KnobHandle } from './components/knob';
+import { createRadioGroup, createSwitch, type SwitchHandle } from './components/switch';
+
+/**
+ * Read a dotted path on the current preset for two-way knob binding.
+ * Mirrors {@link DemoPlayer}'s setPresetPath() — when a demo emits a
+ * `param` event with target = 'filter.cutoff', that mutation feeds back
+ * here so the on-panel knob animates in sync with the audio.
+ */
+function readPresetPath(obj: unknown, path: string): unknown {
+  let cur: unknown = obj;
+  for (const part of path.split('.')) {
+    if (cur && typeof cur === 'object' && part in (cur as Record<string, unknown>)) {
+      cur = (cur as Record<string, unknown>)[part];
+    } else return undefined;
+  }
+  return cur;
+}
+
+/** Subscribe a knob handle to a preset path. Idempotent on re-mutate. */
+function bindKnobToPreset(handle: KnobHandle, path: string): KnobHandle {
+  let last: number | undefined;
+  currentPreset.subscribe((p) => {
+    const v = readPresetPath(p, path);
+    if (typeof v === 'number' && v !== last) {
+      last = v;
+      handle.set(v);
+    }
+  });
+  return handle;
+}
+
+/** Subscribe a switch handle to a boolean preset path. */
+function bindSwitchToPreset(handle: SwitchHandle, path: string): SwitchHandle {
+  let last: boolean | undefined;
+  currentPreset.subscribe((p) => {
+    const v = readPresetPath(p, path);
+    if (typeof v === 'boolean' && v !== last) {
+      last = v;
+      handle.set(v, false);
+    }
+  });
+  return handle;
+}
 import { createAlphanumericDisplay, createProgramDisplay } from './components/display';
 import { createKeypad } from './components/keypad';
 
@@ -96,17 +138,23 @@ function buildLeftSection(): HTMLElement {
   });
   performance.appendChild(autoTune.element);
 
-  const glide = createKnob({
-    label: 'Glide',
-    value: initial.glide,
-    defaultValue: 0,
-    onChange: (v) => mutate(withDisplay('GLIDE', (d) => (d.glide = v), (p) => p.glide.toFixed(1))),
-  });
-  const glideOn = createSwitch({
-    label: 'Glide On',
-    active: initial.glideOn,
-    onChange: (a) => mutate((d) => (d.glideOn = a)),
-  });
+  const glide = bindKnobToPreset(
+    createKnob({
+      label: 'Glide',
+      value: initial.glide,
+      defaultValue: 0,
+      onChange: (v) => mutate(withDisplay('GLIDE', (d) => (d.glide = v), (p) => p.glide.toFixed(1))),
+    }),
+    'glide',
+  );
+  const glideOn = bindSwitchToPreset(
+    createSwitch({
+      label: 'Glide On',
+      active: initial.glideOn,
+      onChange: (a) => mutate((d) => (d.glideOn = a)),
+    }),
+    'glideOn',
+  );
 
   const mono = createSwitch({
     label: 'Mono',
@@ -132,11 +180,14 @@ function buildLeftSection(): HTMLElement {
     value: initial.pitchBendAmount,
     onChange: (v) => mutate((d) => (d.pitchBendAmount = v)),
   });
-  const modAmt = createKnob({
-    label: 'Mod Amount',
-    value: initial.modulationAmount,
-    onChange: (v) => mutate((d) => (d.modulationAmount = v)),
-  });
+  const modAmt = bindKnobToPreset(
+    createKnob({
+      label: 'Mod Amount',
+      value: initial.modulationAmount,
+      onChange: (v) => mutate((d) => (d.modulationAmount = v)),
+    }),
+    'modulationAmount',
+  );
   bendMod.append(pitchBend.element, modAmt.element);
 
   const systemCtrl = group('System Controller');
@@ -163,11 +214,14 @@ function buildModulationSection(): HTMLElement {
   const lfo = group('LFO Modulation');
   const initial = currentPreset.get();
 
-  const lfoRate = createKnob({
-    label: 'Rate',
-    value: initial.lfo.rate,
-    onChange: (v) => mutate((d) => (d.lfo.rate = v)),
-  });
+  const lfoRate = bindKnobToPreset(
+    createKnob({
+      label: 'Rate',
+      value: initial.lfo.rate,
+      onChange: (v) => mutate((d) => (d.lfo.rate = v)),
+    }),
+    'lfo.rate',
+  );
 
   const lfoWave = createRadioGroup<LfoWave>({
     label: 'Wave',
@@ -194,12 +248,15 @@ function buildModulationSection(): HTMLElement {
     ['Filter', 'filter'],
   ];
   for (const [label, key] of dests) {
-    const sw = createSwitch({
-      label,
-      active: initial.lfo.dest[key],
-      onChange: (a) => mutate((d) => (d.lfo.dest[key] = a)),
-      size: 'sm',
-    });
+    const sw = bindSwitchToPreset(
+      createSwitch({
+        label,
+        active: initial.lfo.dest[key],
+        onChange: (a) => mutate((d) => (d.lfo.dest[key] = a)),
+        size: 'sm',
+      }),
+      `lfo.dest.${key}`,
+    );
     lfoDest.appendChild(sw.element);
   }
   lfo.append(lfoRate.element, lfoWave.element, lfoDest);
@@ -335,13 +392,16 @@ function buildOscRow(idx: 1 | 2 | 3): HTMLElement {
   }
 
   if (idx === 2) {
-    const coarse = createKnob({
-      label: 'Coarse',
-      value: initial.osc2.coarse,
-      min: -7,
-      max: 7,
-      onChange: (v) => mutate((d) => (d.osc2.coarse = v)),
-    });
+    const coarse = bindKnobToPreset(
+      createKnob({
+        label: 'Coarse',
+        value: initial.osc2.coarse,
+        min: -7,
+        max: 7,
+        onChange: (v) => mutate((d) => (d.osc2.coarse = v)),
+      }),
+      'osc2.coarse',
+    );
     const fine = createKnob({
       label: 'Fine',
       value: initial.osc2.fine,
@@ -416,16 +476,22 @@ function buildRightSection(): HTMLElement {
   });
   kbTrackRow.append(kb13.element, kb23.element);
 
-  const cutoff = createKnob({
-    label: 'Cutoff',
-    value: initial.filter.cutoff,
-    onChange: (v) => mutate((d) => (d.filter.cutoff = v)),
-  });
-  const emphasis = createKnob({
-    label: 'Emphasis',
-    value: initial.filter.emphasis,
-    onChange: (v) => mutate((d) => (d.filter.emphasis = v)),
-  });
+  const cutoff = bindKnobToPreset(
+    createKnob({
+      label: 'Cutoff',
+      value: initial.filter.cutoff,
+      onChange: (v) => mutate((d) => (d.filter.cutoff = v)),
+    }),
+    'filter.cutoff',
+  );
+  const emphasis = bindKnobToPreset(
+    createKnob({
+      label: 'Emphasis',
+      value: initial.filter.emphasis,
+      onChange: (v) => mutate((d) => (d.filter.emphasis = v)),
+    }),
+    'filter.emphasis',
+  );
   const contour = createKnob({
     label: 'Contour Amt',
     value: initial.filter.contourAmount,

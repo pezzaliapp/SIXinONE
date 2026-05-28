@@ -77,6 +77,65 @@ function bindTransport(shell: HTMLElement): void {
   shell.appendChild(createTransportPanel().element);
 }
 
+let lockControlsDuringDemo = false;
+
+function showDemoToast(text: string, durMs = 2000): void {
+  let toast = document.querySelector<HTMLElement>('.demos-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.className = 'demos-toast';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = text;
+  toast.dataset.visible = 'true';
+  window.setTimeout(() => {
+    if (toast) toast.dataset.visible = 'false';
+  }, durMs);
+}
+
+/**
+ * Auto-pause the running demo when the user touches a panel control or
+ * plays the keyboard. Disabled while `lockControlsDuringDemo` is on so
+ * the user can opt into "demo-only" listening mode.
+ */
+function wireAutoPause(demoPlayer: DemoPlayer): void {
+  const PANEL_SELECTOR = '.knob, .panel-switch, .midi-select, .seq-slot, .kb-key, .seq-bpm input, .arp-bpm, .transport-bpm';
+
+  const onInteract = (e: Event): void => {
+    if (!demoPlayer.isPlaying || lockControlsDuringDemo) return;
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+    // Ignore everything inside the demos panel itself.
+    if (target.closest('.demos-panel') || target.closest('.demos-trigger')) return;
+    if (target.closest(PANEL_SELECTOR)) {
+      demoPlayer.pause();
+      showDemoToast('Demo paused — controls active');
+    }
+  };
+
+  document.addEventListener('mousedown', onInteract, true);
+  document.addEventListener('keydown', (e) => {
+    if (!demoPlayer.isPlaying || lockControlsDuringDemo) return;
+    // Demo player navigation keys handled inside demos-panel.
+    if (['Space', 'Escape', 'ArrowLeft', 'ArrowRight'].includes(e.code)) return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('.demos-panel')) return;
+    demoPlayer.pause();
+    showDemoToast('Demo paused — controls active');
+  }, true);
+
+  // "Lock controls" toggle inserted into the demos panel transport.
+  const lockWrap = document.createElement('label');
+  lockWrap.className = 'demos-lock-toggle';
+  lockWrap.innerHTML = '<input type="checkbox" /> Lock controls during demo';
+  const lockInput = lockWrap.querySelector('input') as HTMLInputElement;
+  lockInput.addEventListener('change', () => {
+    lockControlsDuringDemo = lockInput.checked;
+  });
+  const transport = document.querySelector('.demos-transport');
+  transport?.appendChild(lockWrap);
+}
+
 export function bootApp(root: HTMLElement): void {
   root.innerHTML = '';
 
@@ -112,6 +171,7 @@ export function bootApp(root: HTMLElement): void {
   demosPanel.triggerButton.addEventListener('click', () => {
     void ensureSynth().start();
   });
+  wireAutoPause(demoPlayer);
 
   const presetBar = document.createElement('nav');
   presetBar.className = 'preset-bar';

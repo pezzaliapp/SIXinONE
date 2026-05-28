@@ -1549,3 +1549,12 @@ body {
   background: var(--accent);
   color: #0a0907;
 }
+
+.demos-lock-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.6rem;
+  color: var(--muted);
+  margin-top: 0.3rem;
+}
