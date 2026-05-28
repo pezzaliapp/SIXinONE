@@ -76,8 +76,17 @@ export interface Demo {
   isLong?: boolean;
 }
 
-/** Populated incrementally in subsequent commits. */
-export const DEMOS: Demo[] = [];
+import { arenaSyncLead } from './demos/style-arena';
+import { neonDrive } from './demos/style-neon';
+import { cinematicSweep } from './demos/style-cinematic';
+import { funkBassWorkout } from './demos/style-funk';
+
+export const DEMOS: Demo[] = [
+  arenaSyncLead,
+  neonDrive,
+  cinematicSweep,
+  funkBassWorkout,
+];
 
 /** Lookup helper used by the per-preset PLAY button. */
 export function findDemoForPreset(presetNumber: number): Demo | undefined {
