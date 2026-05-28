@@ -52,3 +52,16 @@ export function showDisplay(text: string, ms = 1500): void {
 export function flashEdit(from: string, to: string): void {
   displayMessage.set({ text: 'EDIT', edit: { from, to } });
 }
+
+let tuningInFlight = false;
+export async function runAutoTune(): Promise<void> {
+  if (tuningInFlight) return;
+  tuningInFlight = true;
+  displayMessage.set({ text: 'TUNING', edit: null });
+  await new Promise((res) => window.setTimeout(res, 1800));
+  displayMessage.set({ text: '6 TUNED', edit: null });
+  await new Promise((res) => window.setTimeout(res, 1100));
+  const cur = currentPreset.get();
+  displayMessage.set({ text: cur.name.toUpperCase().slice(0, 12), edit: null });
+  tuningInFlight = false;
+}

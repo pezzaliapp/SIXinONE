@@ -14,7 +14,7 @@
  */
 
 import type { Preset, LfoWave } from '../data/preset';
-import { currentPreset, flashEdit, mutate } from '../state/store';
+import { currentPreset, flashEdit, mutate, runAutoTune } from '../state/store';
 import { createKnob } from './components/knob';
 import { createRadioGroup, createSwitch } from './components/switch';
 import { createAlphanumericDisplay, createProgramDisplay } from './components/display';
@@ -82,8 +82,18 @@ function buildLeftSection(): HTMLElement {
   const wrap = section({ title: 'Left Side Control', className: 'left-side' });
 
   const performance = group('Performance');
-  // Glide knob + on/off
   const initial = currentPreset.get();
+
+  const autoTune = createSwitch({
+    label: 'Auto Tune',
+    active: false,
+    onChange: () => {
+      void runAutoTune();
+      // Momentary: snap back after a beat so the LED matches the action.
+      window.setTimeout(() => autoTune.set(false, false), 2900);
+    },
+  });
+  performance.appendChild(autoTune.element);
 
   const glide = createKnob({
     label: 'Glide',
