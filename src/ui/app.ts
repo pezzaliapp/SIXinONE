@@ -6,6 +6,7 @@ import { createPanel } from './panel';
 import { createKeyboard } from './keyboard';
 import { createMidiPanel } from './components/midi-panel';
 import { createSequencerPanel } from './components/sequencer-panel';
+import { createFxRack } from './components/fx-rack';
 import { Sequencer } from '../sequencer/sequencer';
 import { createHelpButton } from './components/help-panel';
 import { currentPreset, loadPreset } from '../state/store';
@@ -52,6 +53,11 @@ function bindSequencer(shell: HTMLElement): void {
   shell.appendChild(createSequencerPanel(sequencer).element);
 }
 
+function bindFxRack(shell: HTMLElement): void {
+  const s = ensureSynth();
+  shell.appendChild(createFxRack(s).element);
+}
+
 export function bootApp(root: HTMLElement): void {
   root.innerHTML = '';
 
@@ -93,6 +99,7 @@ export function bootApp(root: HTMLElement): void {
   shell.appendChild(createPanel());
   bindKeyboard(shell);
   bindMidi(shell);
+  bindFxRack(shell);
   bindSequencer(shell);
 
   const footer = document.createElement('footer');

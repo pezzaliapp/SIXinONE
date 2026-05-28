@@ -884,6 +884,77 @@ body {
   color: var(--ink);
 }
 
+/* ── FX rack ────────────────────────────────────────────── */
+
+.fx-rack {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: linear-gradient(180deg, #110f0c 0%, #07060a 100%);
+  border: 1px solid #1d1a13;
+  border-radius: 6px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0.6rem;
+}
+
+.fx-rack .group-title {
+  grid-column: 1 / -1;
+  margin: 0 0 0.2rem 0;
+}
+
+.fx-module {
+  background: #0a0907;
+  border: 1px solid #2a261c;
+  border-radius: 4px;
+  padding: 0.5rem 0.6rem;
+}
+
+.fx-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.fx-led {
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 50%;
+  border: 1px solid #2a261c;
+  background: #100c08;
+  cursor: pointer;
+  box-shadow: inset 0 0 2px #000;
+  padding: 0;
+}
+
+.fx-led[data-active='true'] {
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
+
+.fx-name {
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  color: var(--ink);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.fx-body {
+  padding-top: 0.2rem;
+}
+
+.fx-knob-row {
+  display: flex;
+  gap: 0.45rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.fx-ping {
+  align-self: center;
+}
+
 /* ── Sequencer panel ────────────────────────────────────── */
 
 .sequencer-panel {
