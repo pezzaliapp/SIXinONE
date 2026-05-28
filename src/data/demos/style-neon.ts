@@ -25,7 +25,10 @@ function build(): Demo {
   ];
 
   let t = 0;
-  for (let cycle = 0; cycle < 2; cycle++) {
+  // Single cycle of Dm–F–C–G with brass+bass bars (8 bars = 19.2 s); the
+  // tail stab brings the total to ~21 s, well under the advertised 25 s
+  // window so the engine has time to release the FX tails.
+  for (let cycle = 0; cycle < 1; cycle++) {
     for (const c of chords) {
       // --- Brass stab bar (preset 2) -----------------------------------
       events.push({ time: t, type: 'preset', presetNumber: 2 });
