@@ -1,6 +1,7 @@
 import { TEST_PRESETS } from '../data/test-presets';
 import { Synth } from '../audio/synth';
 import { createPanel } from './panel';
+import { createKeyboard } from './keyboard';
 import { currentPreset, loadPreset } from '../state/store';
 
 let synth: Synth | null = null;
@@ -24,6 +25,12 @@ async function previewChord(): Promise<void> {
   window.setTimeout(() => {
     for (const n of chord) s.noteOff(n);
   }, 2000);
+}
+
+function bindKeyboard(shell: HTMLElement): void {
+  const s = ensureSynth();
+  const kb = createKeyboard(s);
+  shell.appendChild(kb.element);
 }
 
 export function bootApp(root: HTMLElement): void {
@@ -58,12 +65,17 @@ export function bootApp(root: HTMLElement): void {
 
   shell.appendChild(header);
   shell.appendChild(createPanel());
+  bindKeyboard(shell);
 
   const footer = document.createElement('footer');
   footer.className = 'app-footer';
   footer.innerHTML = `
     <p>Unofficial educational simulator. Moog, Memorymoog and the Moog logo are trademarks of Moog Music Inc.</p>
-    <p class="hint">Click a preset tile to load + preview. Drag a knob, double-click resets, Shift = fine.</p>
+    <p class="hint">
+      Click a preset tile to load + preview. Drag a knob (Shift = fine, double-click = reset).
+      Play with mouse on the keys or use your computer keyboard
+      (lower row: z s x d c v g b h n j m — upper row: q 2 w 3 e r 5 t 6 y 7 u — octave shift: [ ])
+    </p>
   `;
   shell.appendChild(footer);
 

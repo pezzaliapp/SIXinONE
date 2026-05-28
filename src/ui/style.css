@@ -415,6 +415,131 @@ body {
   color: #c2ffd2;
 }
 
+/* ── Keyboard ───────────────────────────────────────────── */
+
+.keyboard-section {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: linear-gradient(180deg, #100e0b 0%, #07060a 100%);
+  border: 1px solid #1d1a13;
+  border-radius: 6px;
+}
+
+.keyboard-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+}
+
+.voice-leds {
+  display: inline-flex;
+  gap: 0.35rem;
+  padding: 0.4rem 0.5rem;
+  background: #050505;
+  border: 1px solid #1a1a1a;
+  border-radius: 3px;
+}
+
+.voice-led {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #1a0a08;
+  border: 1px solid #050202;
+  transition: background 80ms ease, box-shadow 80ms ease;
+}
+
+.voice-led[data-active='true'] {
+  background: var(--accent-led);
+  box-shadow: 0 0 6px var(--led-glow);
+}
+
+.anchor-label {
+  margin-left: auto;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  color: #87ffae;
+  text-shadow: 0 0 4px rgba(135, 255, 174, 0.45);
+  letter-spacing: 0.1em;
+}
+
+.keyboard {
+  position: relative;
+  height: 130px;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+.kb-white-row {
+  display: grid;
+  grid-template-columns: repeat(36, 1fr);
+  height: 100%;
+  gap: 1px;
+  background: #050505;
+  border: 1px solid #1a1a1a;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.kb-key {
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-family: var(--font-label);
+  font-size: 0.6rem;
+  letter-spacing: 0.05em;
+}
+
+.kb-key.white {
+  background: linear-gradient(180deg, #f1ecdc 0%, #c8c2b0 100%);
+  color: #211b10;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  padding-bottom: 0.35rem;
+  border-right: 1px solid #5c5446;
+  transition: background 60ms ease;
+}
+
+.kb-key.white[data-active='true'] {
+  background: linear-gradient(180deg, var(--accent-led) 0%, #8a2e1c 100%);
+  color: #100404;
+}
+
+.kb-label {
+  opacity: 0.7;
+}
+
+.kb-black-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 65%;
+  pointer-events: none;
+}
+
+.kb-key.black {
+  pointer-events: auto;
+  position: absolute;
+  top: 0;
+  width: 1.6%;
+  height: 100%;
+  background: linear-gradient(180deg, #060606 0%, #1a1a1a 100%);
+  color: #d1cbb8;
+  border: 1px solid #000;
+  border-top: none;
+  border-radius: 0 0 3px 3px;
+  transform: translateX(-50%);
+  transition: background 60ms ease;
+}
+
+.kb-key.black[data-active='true'] {
+  background: linear-gradient(180deg, var(--accent) 0%, #6a1f12 100%);
+}
+
 /* ── Footer ─────────────────────────────────────────────── */
 
 .app-footer {
