@@ -1,60 +1,71 @@
 import { TEST_PRESETS } from '../data/test-presets';
 import { Synth } from '../audio/synth';
-
-/**
- * Step 3 boot — minimal UI that lets you audition the test presets through
- * the basic Web Audio voice graph. The real panel layout is wired in Step 5.
- */
-
-const CHORD_NOTES = [60, 64, 67, 72]; // C4 E4 G4 C5
+import { createPanel } from './panel';
+import { currentPreset, loadPreset } from '../state/store';
 
 let synth: Synth | null = null;
 
 function ensureSynth(): Synth {
   if (synth) return synth;
-  const initial = TEST_PRESETS[0];
-  if (!initial) throw new Error('No test presets defined');
-  synth = new Synth(initial);
+  synth = new Synth(currentPreset.get());
+  // Keep the synth in sync with the editable preset.
+  currentPreset.subscribe((p) => synth?.setPreset(p));
   return synth;
 }
 
-async function playPresetDemo(presetIdx: number): Promise<void> {
+async function previewChord(): Promise<void> {
   const s = ensureSynth();
   await s.start();
-  const preset = TEST_PRESETS[presetIdx];
-  if (!preset) return;
-  s.setPreset(preset);
-  for (let i = 0; i < CHORD_NOTES.length; i++) {
-    const note = CHORD_NOTES[i]!;
-    setTimeout(() => s.noteOn(note, 0.9), i * 90);
+  const chord = [60, 64, 67, 72];
+  for (let i = 0; i < chord.length; i++) {
+    const n = chord[i]!;
+    window.setTimeout(() => s.noteOn(n, 0.9), i * 80);
   }
-  setTimeout(() => {
-    for (const n of CHORD_NOTES) s.noteOff(n);
-  }, 2200);
+  window.setTimeout(() => {
+    for (const n of chord) s.noteOff(n);
+  }, 2000);
 }
 
 export function bootApp(root: HTMLElement): void {
-  root.innerHTML = `
-    <main class="boot">
-      <h1>SIXinONE</h1>
-      <p class="tagline">A Tribute to the Moog Memorymoog (1982)</p>
-      <p class="muted">Audio engine bring-up — Step 3. Click a preset to audition.</p>
-      <div class="preset-grid" id="preset-grid"></div>
-      <p class="muted small">
-        Full 61-key panel + 100 presets arrive in later steps.
-      </p>
-    </main>
+  root.innerHTML = '';
+  const shell = document.createElement('div');
+  shell.className = 'app-shell';
+
+  const header = document.createElement('header');
+  header.className = 'app-header';
+  header.innerHTML = `
+    <div class="brand">
+      <span class="brand-mark">6</span>
+      <h1 class="brand-text">SIXinONE</h1>
+      <span class="brand-sub">A Tribute to the Moog Memorymoog</span>
+    </div>
   `;
 
-  const grid = root.querySelector<HTMLDivElement>('#preset-grid');
-  if (!grid) return;
-  TEST_PRESETS.forEach((preset, idx) => {
+  const presetBar = document.createElement('nav');
+  presetBar.className = 'preset-bar';
+  for (const p of TEST_PRESETS) {
     const btn = document.createElement('button');
-    btn.className = 'preset-btn';
-    btn.textContent = `${preset.number.toString().padStart(2, '0')} ${preset.name}`;
+    btn.type = 'button';
+    btn.className = 'preset-tile';
+    btn.textContent = `${p.number.toString().padStart(2, '0')} ${p.name}`;
     btn.addEventListener('click', () => {
-      void playPresetDemo(idx);
+      loadPreset(p);
+      void previewChord();
     });
-    grid.appendChild(btn);
-  });
+    presetBar.appendChild(btn);
+  }
+  header.appendChild(presetBar);
+
+  shell.appendChild(header);
+  shell.appendChild(createPanel());
+
+  const footer = document.createElement('footer');
+  footer.className = 'app-footer';
+  footer.innerHTML = `
+    <p>Unofficial educational simulator. Moog, Memorymoog and the Moog logo are trademarks of Moog Music Inc.</p>
+    <p class="hint">Click a preset tile to load + preview. Drag a knob, double-click resets, Shift = fine.</p>
+  `;
+  shell.appendChild(footer);
+
+  root.appendChild(shell);
 }
