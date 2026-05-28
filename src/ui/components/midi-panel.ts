@@ -75,6 +75,33 @@ export function createMidiPanel(synth: Synth): MidiPanelHandle {
   grid.appendChild(thruBtn);
   root.appendChild(grid);
 
+  // ── Controller indicators (MOD WHEEL / SUSTAIN / PITCH BEND) ───────────
+  const controllers = document.createElement('div');
+  controllers.className = 'midi-controllers';
+  const modBar = document.createElement('div');
+  modBar.className = 'midi-meter';
+  modBar.innerHTML = '<span class="midi-meter-label">MOD</span><span class="midi-meter-bar"><span class="midi-meter-fill"></span></span>';
+  const bendBar = document.createElement('div');
+  bendBar.className = 'midi-meter midi-meter-bipolar';
+  bendBar.innerHTML = '<span class="midi-meter-label">BEND</span><span class="midi-meter-bar"><span class="midi-meter-fill"></span></span>';
+  const sustainLed = document.createElement('div');
+  sustainLed.className = 'midi-led';
+  sustainLed.innerHTML = '<span class="midi-led-dot"></span><span class="midi-led-label">SUSTAIN</span>';
+  controllers.append(modBar, bendBar, sustainLed);
+  root.appendChild(controllers);
+
+  const modFill = modBar.querySelector('.midi-meter-fill') as HTMLElement;
+  const bendFill = bendBar.querySelector('.midi-meter-fill') as HTMLElement;
+
+  synth.onControllerState(({ modWheel, sustain, bend }) => {
+    modFill.style.width = `${(modWheel / 127) * 100}%`;
+    // Bend is in semitones — assume up to ±12 for display; center is 50%.
+    const bendPct = Math.max(-1, Math.min(1, bend / 12));
+    bendFill.style.width = `${Math.abs(bendPct) * 50}%`;
+    bendFill.style.marginLeft = bendPct >= 0 ? '50%' : `${50 - Math.abs(bendPct) * 50}%`;
+    sustainLed.dataset.active = String(sustain);
+  });
+
   function renderStatus(s: MidiStatus): void {
     const labels: Record<MidiStatus, string> = {
       idle: 'click to request',
@@ -152,10 +179,8 @@ export function createMidiPanel(synth: Synth): MidiPanelHandle {
       }
       case 'cc':
         if (msg.controller === CC_ALL_NOTES_OFF) synth.panic();
-        // CC_MOD_WHEEL + CC_SUSTAIN handled by the engine in future iterations
-        else if (msg.controller === CC_MOD_WHEEL || msg.controller === CC_SUSTAIN) {
-          // TODO: wire mod wheel into LFO depth; sustain into envelope hold.
-        }
+        else if (msg.controller === CC_MOD_WHEEL) synth.setModWheel(msg.value);
+        else if (msg.controller === CC_SUSTAIN) synth.setSustainPedal(msg.value >= 64);
         break;
       case 'program':
         if (msg.number < 100) loadPreset(presetBank.get(msg.number));

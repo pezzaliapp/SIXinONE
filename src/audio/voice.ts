@@ -188,28 +188,24 @@ export class Voice {
   }
 
   private wireLfoModulation(lfoBus: AudioNode, preset: Preset): void {
-    const depth = preset.modulationAmount / 10; // 0..1
-    if (depth <= 0) return;
+    // lfoBus is the *already modDepth-scaled* signal from the Synth: its
+    // amplitude is (preset.modAmount/10 + modWheel/127), capped at 1.5. So
+    // here we wire with full-scale destination depths and let the global
+    // gain stage decide how much actually reaches each voice.
     const dest = preset.lfo.dest;
-
-    // Pitch destinations (osc freq) — modulation in semitones, scaled to cents.
-    const pitchCentsDepth = depth * 700; // up to a ~5th of vibrato at max
+    const pitchCentsDepth = 700; // a fifth at full depth — classic vibrato range
     if (dest.osc1) this.osc1Bank.tapPitchModulation(lfoBus, pitchCentsDepth);
     if (dest.osc2) this.osc2Bank.tapPitchModulation(lfoBus, pitchCentsDepth);
     if (dest.osc3 && !preset.osc3.low) {
       this.osc3Bank.tapPitchModulation(lfoBus, pitchCentsDepth);
     }
-
-    // Filter cutoff modulation — additive in Hz. Use a large headroom.
     if (dest.filter) {
       const g = this.ctx.createGain();
-      g.gain.value = depth * 2000;
+      g.gain.value = 2000;
       lfoBus.connect(g);
       g.connect(this.filter.cutoff);
     }
-
-    // Pulse-width modulation destinations (v2 — was a no-op in v1).
-    const pwDepth = depth * 0.3; // ±30% duty modulation at full mod
+    const pwDepth = 0.3;
     if (dest.pw1) this.osc1Bank.tapPulseWidthModulation(lfoBus, pwDepth);
     if (dest.pw2) this.osc2Bank.tapPulseWidthModulation(lfoBus, pwDepth);
     if (dest.pw3) this.osc3Bank.tapPulseWidthModulation(lfoBus, pwDepth);
