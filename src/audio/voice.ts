@@ -235,9 +235,34 @@ export class Voice {
     return baseHz * semitonesToRatio(octaveSemitones(o.octave) + o.frequency);
   }
 
+  /**
+   * Apply the global Contour switches to a freshly computed ADSR.
+   *   release flag OFF → release time forced to 0
+   *   KB-follow flag ON → all times scaled by a factor based on note pitch
+   *   (high keys → shorter envelopes, low keys → slower; classic analog)
+   * Return-to-Zero and Unconditional are surfaced for the UI but their
+   * per-voice impact is null in our retriggering voice-per-note model —
+   * leaving the flags as visual state matches the Memorymoog behaviour
+   * for typical playing, and a multi-trigger refactor would be needed
+   * to differentiate them properly. (TODO: pull envelope into its own
+   * voice-shared generator when implementing arpeggiator legato.)
+   */
+  private applyContourFlags(env: { attack: number; decay: number; sustain: number; release: number }): typeof env {
+    const c = this.preset.contour;
+    const factor = c.keyboardFollow
+      ? Math.pow(2, (69 - this.midiNote) / 24)
+      : 1;
+    return {
+      attack: env.attack * factor,
+      decay: env.decay * factor,
+      sustain: env.sustain,
+      release: c.release ? env.release * factor : 0,
+    };
+  }
+
   private scheduleEnvelopes(startTime: number, velocity: number): void {
-    const vcaEnv = vcaTimes(this.preset.vca);
-    const filtEnv = filterTimes(this.preset.filter);
+    const vcaEnv = this.applyContourFlags(vcaTimes(this.preset.vca));
+    const filtEnv = this.applyContourFlags(filterTimes(this.preset.filter));
     const peak = volumeLinear(this.preset.programmableVolume) * Math.max(0.25, velocity);
     applyAttackDecay(this.vca.gain, startTime, 0, peak, vcaEnv);
     applyAttackDecay(
@@ -252,8 +277,8 @@ export class Voice {
   release(at: number): number {
     if (this.released) return this.endTime;
     this.released = true;
-    const vcaEnv = vcaTimes(this.preset.vca);
-    const filtEnv = filterTimes(this.preset.filter);
+    const vcaEnv = this.applyContourFlags(vcaTimes(this.preset.vca));
+    const filtEnv = this.applyContourFlags(filterTimes(this.preset.filter));
     const t1 = applyRelease(this.vca.gain, at, 0, vcaEnv.release);
     const t2 = applyRelease(this.filter.cutoff, at, this.filterBaseHz, filtEnv.release);
     this.endTime = Math.max(t1, t2) + 0.05;
