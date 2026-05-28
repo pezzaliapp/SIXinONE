@@ -17,6 +17,7 @@ import { presetBank } from '../../data/preset-bank';
 import { loadPreset } from '../../state/store';
 import { pitchBendSemitones } from '../../data/preset-scales';
 import { createMpeRouter, type MpeRouter } from '../../midi/mpe';
+import { externalClock } from '../../midi/external-clock';
 
 export interface MidiPanelHandle {
   element: HTMLElement;
@@ -226,8 +227,20 @@ export function createMidiPanel(synth: Synth): MidiPanelHandle {
     midiBridge.setThru(next);
   });
 
+  const extClkAux = extClkLed.querySelector('.midi-led-aux') as HTMLElement;
+  externalClock.subscribe({
+    onPresenceChange(present) {
+      extClkLed.dataset.active = String(present);
+      if (!present) extClkAux.textContent = '—';
+    },
+    onQuarter(bpm) {
+      extClkAux.textContent = `${Math.round(bpm)}`;
+    },
+  });
+
   // Subscribe synth to incoming MIDI.
   midiBridge.subscribe((msg) => {
+    externalClock.handle(msg);
     mpe.observe(msg);
     const mpeOn = mpe.isActive();
     const master = mpe.masterChannel();
