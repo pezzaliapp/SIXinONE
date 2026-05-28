@@ -387,6 +387,7 @@ body {
 }
 
 .alpha-display {
+  position: relative;
   display: flex;
   justify-content: center;
   padding: 0.45rem 0.6rem;
@@ -394,6 +395,21 @@ body {
   border: 1px solid #082814;
   border-radius: 2px;
   min-height: 1.8rem;
+  overflow: hidden;
+}
+
+.alpha-display::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.18) 0,
+    rgba(0, 0, 0, 0.18) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  pointer-events: none;
 }
 
 .alpha-text {
@@ -774,6 +790,99 @@ body {
   color: var(--muted);
   font-size: 0.75rem;
   margin-left: auto;
+}
+
+/* ── Help overlay ───────────────────────────────────────── */
+
+.help-btn {
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 50%;
+  cursor: pointer;
+  margin-left: 0.6rem;
+}
+
+.help-btn:hover {
+  background: var(--accent);
+  color: #0a0404;
+}
+
+.help-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  z-index: 100;
+}
+
+.help-dialog {
+  background: linear-gradient(180deg, #1a1714 0%, #100e0b 100%);
+  border: 6px solid var(--wood);
+  border-radius: 8px;
+  padding: 1.5rem 2rem 2rem;
+  max-width: 640px;
+  max-height: 80vh;
+  overflow-y: auto;
+  color: var(--ink);
+  font-size: 0.9rem;
+  line-height: 1.55;
+  position: relative;
+}
+
+.help-dialog h2 {
+  font-family: var(--font-display);
+  letter-spacing: 0.18em;
+  color: var(--accent);
+  margin: 0 0 1rem;
+  font-size: 1.6rem;
+}
+
+.help-dialog h3 {
+  font-family: var(--font-display);
+  letter-spacing: 0.18em;
+  color: var(--serigraph);
+  margin: 1.25rem 0 0.5rem;
+  font-size: 1rem;
+  text-transform: uppercase;
+}
+
+.help-dialog ul {
+  margin: 0 0 0 1rem;
+  padding: 0;
+}
+
+.help-dialog kbd {
+  background: var(--switch-bg);
+  border: 1px solid #2c281e;
+  color: var(--serigraph);
+  padding: 0.05rem 0.3rem;
+  border-radius: 3px;
+  font-size: 0.85em;
+}
+
+.help-close {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.75rem;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 1.5rem;
+  cursor: pointer;
+}
+
+.help-close:hover {
+  color: var(--accent);
 }
 
 /* ── Footer ─────────────────────────────────────────────── */

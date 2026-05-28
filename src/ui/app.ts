@@ -7,6 +7,7 @@ import { createKeyboard } from './keyboard';
 import { createMidiPanel } from './components/midi-panel';
 import { createSequencerPanel } from './components/sequencer-panel';
 import { Sequencer } from '../sequencer/sequencer';
+import { createHelpButton } from './components/help-panel';
 import { currentPreset, loadPreset } from '../state/store';
 
 let synth: Synth | null = null;
@@ -70,6 +71,8 @@ export function bootApp(root: HTMLElement): void {
       <span class="brand-sub">A Tribute to the Moog Memorymoog</span>
     </div>
   `;
+  const brand = header.querySelector('.brand');
+  if (brand) brand.appendChild(createHelpButton());
 
   const presetBar = document.createElement('nav');
   presetBar.className = 'preset-bar';
